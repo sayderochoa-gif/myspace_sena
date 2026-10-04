@@ -37,5 +37,63 @@ model Empleado {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  horasTrabajadas HorasTrabajadas[]
+  liquidaciones   Liquidacion[]
+
   @@map("empleados")
+}
+
+enum EstadoLiquidacion {
+  PENDIENTE
+  CALCULADA
+  ANULADA
+}
+
+model HorasTrabajadas {
+  id          Int      @id @default(autoincrement())
+  empleadoId  Int      @map("empleado_id")
+  periodo     String   @db.VarChar(7)
+  horas       Decimal  @db.Decimal(6, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  empleado    Empleado @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+
+  @@unique([empleadoId, periodo], name: "unique_empleado_periodo_horas")
+  @@map("horas_trabajadas")
+}
+
+model Liquidacion {
+  id                        Int               @id @default(autoincrement())
+  empleadoId                Int               @map("empleado_id")
+  periodo                   String            @db.VarChar(7)
+  horasTrabajadas           Decimal           @map("horas_trabajadas") @db.Decimal(6, 2)
+  valorHora                 Decimal           @map("valor_hora") @db.Decimal(12, 2)
+  numeroHijos               Int               @default(0) @map("numero_hijos")
+  cargoNombre               String            @map("cargo_nombre") @db.VarChar(100)
+  salarioBruto              Decimal           @map("salario_bruto") @db.Decimal(14, 2)
+  bonoHijos                 Decimal           @map("bono_hijos") @db.Decimal(14, 2)
+  porcentajeSeguridadSocial Decimal           @map("porcentaje_seguridad_social") @db.Decimal(5, 2)
+  valorSeguridadSocial      Decimal           @map("valor_seguridad_social") @db.Decimal(14, 2)
+  salarioNeto               Decimal           @map("salario_neto") @db.Decimal(14, 2)
+  estado                    EstadoLiquidacion @default(CALCULADA)
+  fechaLiquidacion          DateTime          @default(now()) @map("fecha_liquidacion")
+  createdAt                 DateTime          @default(now()) @map("created_at")
+  updatedAt                 DateTime          @updatedAt @map("updated_at")
+
+  empleado                  Empleado          @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+
+  @@unique([empleadoId, periodo], name: "unique_empleado_periodo_liquidacion")
+  @@map("liquidaciones")
+}
+
+model ConfiguracionNomina {
+  id          Int      @id @default(autoincrement())
+  clave       String   @unique @db.VarChar(50)
+  valor       String   @db.VarChar(100)
+  descripcion String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("configuraciones_nomina")
 }

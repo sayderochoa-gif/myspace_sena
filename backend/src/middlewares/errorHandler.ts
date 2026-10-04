@@ -31,6 +31,12 @@ export function errorHandler(
       } else if (target.includes('correo')) {
         message = 'El correo electrónico ya está registrado';
         errorCode = 'DUPLICATE_EMAIL';
+      } else if (target.includes('liquidaciones') || (target.includes('empleado_id') && target.includes('periodo'))) {
+        message = 'El empleado ya tiene una liquidación para este periodo.';
+        errorCode = 'DUPLICATE_LIQUIDACION';
+      } else if (target.includes('horas_trabajadas')) {
+        message = 'Ya existe un registro de horas para este empleado en el periodo seleccionado';
+        errorCode = 'DUPLICATE_HORAS_PERIODO';
       }
 
       return sendError(res, message, 409, errorCode);

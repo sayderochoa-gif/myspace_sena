@@ -1,430 +1,260 @@
-# Sistema de Automatización de Nómina - Parte 1
+# Sistema de Automatización de Nómina - Parte 1 & Parte 2
 
 Sistema integral de gestión de personal y automatización de nómina diseñado para empresas del sector financiero.
 
-Este repositorio contiene la **Parte 1** del proyecto, enfocada en la creación de una arquitectura base sólida, configuración de persistencia en PostgreSQL con Prisma ORM, API REST completa con TypeScript y Express, y una interfaz de usuario moderna en React con Vite y Tailwind CSS.
+Este repositorio contiene la **Parte 1** (Gestión de Empleados, Cargos y Bandas Salariales) y la **Parte 2** (**Motor de Liquidación de Nómina**, Registro de Horas Trabajadas, Deducciones de Seguridad Social y Preservación Histórica e Inmutable).
 
 ---
 
 ## 1. ¿Qué es el proyecto?
 
-El **Sistema de Automatización de Nómina** permite a una entidad financiera gestionar eficientemente su talento humano y parametrizar los cargos de la organización con sus respectivas bandas salariales.
-
-En esta **Parte 1**, el sistema permite:
-- Gestionar los cargos empresariales (**Gerente**, **Administrador**, **Operario**) con límites salariales estrictos por hora en pesos colombianos (COP).
-- Registrar, consultar, buscar, editar y desactivar lógicamente empleados.
-- Validar rigurosamente que la tarifa por hora asignada a cada empleado se encuentre dentro del rango estipulado para su cargo.
-- Garantizar la unicidad del documento de identidad y correo electrónico.
-- Ofrecer una experiencia de usuario responsiva, accesible y libre de errores.
+El **Sistema de Automatización de Nómina** permite a una entidad financiera:
+1. Gestionar eficientemente su talento humano y parametrizar los cargos de la organización con sus respectivas bandas salariales.
+2. Registrar y controlar mensualmente las **horas trabajadas** por cada empleado asociadas a un periodo específico (`YYYY-MM`).
+3. Calcular de forma automática, segura y precisa el **Salario Bruto**, el **Bono por Hijos**, el **Aporte a Seguridad Social** y el **Salario Neto**.
+4. Ofrecer una **previsualización en tiempo real** previa a la confirmación para evitar errores humanos.
+5. Evitar **liquidaciones duplicadas** para un mismo empleado en un mismo periodo (control a nivel de API y restricción única en PostgreSQL).
+6. Consultar el **historial de liquidaciones** y el **detalle de auditoría**, garantizando la inmutabilidad histórica frente a cambios futuros en la ficha del empleado o en las tarifas de configuración.
 
 ---
 
-## 2. Tecnologías Utilizadas
+## 2. Reglas de Negocio y Fórmulas del Motor de Liquidación (Parte 2)
+
+### 2.1. Cargos y Tarifas por Hora
+Los empleados tienen asignado un `valor_hora` individual fijado dentro de los límites del cargo:
+
+| Cargo | Rango Valor Hora Permitido |
+| :--- | :--- |
+| **Gerente** | $100.000 a $110.000 COP / hora |
+| **Administrador** | $50.000 a $60.000 COP / hora |
+| **Operario** | $25.000 a $30.000 COP / hora |
+
+*Nota:* El motor utiliza exclusivamente el `valor_hora` registrado para el empleado. No se calcula aleatoriamente.
+
+### 2.2. Registro y Validación de Horas
+- **Periodo Obligatorio:** Formato `YYYY-MM` (ejemplo: `2026-09`, `2026-10`).
+- **Validaciones:**
+  - Numéricas, estrictamente mayores a 0 (`horas > 0`).
+  - No se aceptan números negativos ni texto.
+  - Límite máximo razonable mensual: **300 horas**.
+- **Entidad:** `horas_trabajadas` con índice único compuesto `(empleado_id, periodo)`.
+
+### 2.3. Salario Bruto
+$$\text{Salario Bruto} = \text{Horas Trabajadas} \times \text{Valor Hora}$$
+*Ejemplo:* $176 \text{ horas} \times \$55.000 = \$9.680.000$ COP.
+
+### 2.4. Bono por Hijos
+Escala fija de incentivos familiares evaluada en una única fuente de verdad:
+- **0 hijos:** $\$0$
+- **1 hijo:** $\$250.000$
+- **2 hijos:** $\$400.000$
+- **3 o más hijos:** $\$600.000$
+
+### 2.5. Deducción de Seguridad Social
+$$\text{Seguridad Social} = \text{Salario Bruto} \times \left(\frac{\text{Porcentaje Configurado}}{100}\right)$$
+- **Porcentaje Configurable:** Almacenado en la tabla `configuraciones_nomina` (clave `PORCENTAJE_SEGURIDAD_SOCIAL`).
+- **Base académica inicial:** **4%** (`porcentaje = 4`).
+- Se puede modificar dinámicamente mediante el endpoint `PUT /api/configuracion/seguridad-social`. Las nuevas liquidaciones usarán el nuevo valor, mientras las liquidaciones anteriores conservan intacto su porcentaje original.
+
+### 2.6. Salario Neto
+$$\text{Salario Neto} = \text{Salario Bruto} + \text{Bono por Hijos} - \text{Seguridad Social}$$
+*Ejemplo (Caso Completo Juan Pérez, 176h, 2 hijos, 4%):*
+- Salario Bruto: $\$9.680.000$
+- Bono por Hijos: $+\$400.000$
+- Seguridad Social: $-\$387.200$
+- **Salario Neto a Pagar:** $\$9.692.800$ COP.
+
+### 2.7. Auditoría e Inmutabilidad Histórica
+La tabla `liquidaciones` almacena una instantánea (*snapshot*) de todos los valores al momento del cálculo:
+- `valor_hora`
+- `numero_hijos`
+- `cargo_nombre`
+- `porcentaje_seguridad_social`
+- `horas_trabajadas`, `salario_bruto`, `bono_hijos`, `valor_seguridad_social`, `salario_neto`, `estado`, `fecha_liquidacion`.
+
+Si en un mes posterior el empleado cambia de cargo, aumenta su tarifa o cambia su número de hijos, la liquidación histórica **no se modifica**.
+
+---
+
+## 3. Tecnologías Utilizadas
 
 ### Backend
-- **Node.js**: Entorno de ejecución JavaScript del lado del servidor.
-- **Express 4**: Framework web para la construcción de la API REST.
-- **TypeScript**: Tipado estático para robustez y mantenibilidad del código.
-- **Prisma ORM 5**: Mapeo relacional de objetos y gestión de migraciones y modelos.
-- **Zod**: Validación de esquemas y sanitización de datos de entrada.
-- **Helmet & CORS**: Seguridad HTTP y control de acceso cruzado entre dominios.
-- **Morgan**: Registro estructurado de peticiones HTTP en consola.
-- **Vitest & Supertest**: Suite de pruebas unitarias y de integración end-to-end.
+- **Node.js 20+** & **TypeScript 5**
+- **Express 4**: Framework web REST.
+- **Prisma ORM 5**: Gestión de esquemas, migraciones y transacciones ACID en PostgreSQL.
+- **Zod**: Validación estricta y sanitización de datos de entrada.
+- **Vitest & Supertest**: Suite de 38 pruebas unitarias y de integración automáticas.
+- **Helmet, CORS, Morgan**: Seguridad y observabilidad.
 
 ### Frontend
-- **React 18**: Biblioteca para la construcción de interfaces de usuario interactivas.
-- **Vite 5**: Empaquetador de desarrollo ultrarrápido con Hot Module Replacement (HMR).
-- **TypeScript**: Tipado estático en componentes, servicios y contratos de API.
-- **Tailwind CSS 3**: Framework CSS utilitario para diseño moderno y responsivo.
-- **Lucide React**: Conjunto consistente de iconografía vectorial.
+- **React 18** & **TypeScript 5**
+- **Vite 5**: Empaquetador y entorno de desarrollo.
+- **Tailwind CSS 3**: Diseño responsivo y modular.
+- **Lucide React**: Iconografía consistente.
 
-### Base de Datos & Persistencia
-- **PostgreSQL 16**: Base de datos relacional para almacenamiento ACID y alta integridad.
-- **Tipos Decimales (`DECIMAL(12, 2)`)**: Precisión financiera exacta en montos monetarios.
-
-### Despliegue & Contenedores
-- **Docker & Docker Compose**: Configuración lista para despliegue contenerizado multiplataforma.
+### Base de Datos
+- **PostgreSQL 16**: Motor de persistencia relacional con precisión `DECIMAL`.
 
 ---
 
-## 3. Requisitos del Sistema
+## 4. Estructura de la Base de Datos (Modelos Prisma)
 
-- **Node.js**: Versión 18 LTS o superior (recomendado Node.js 20+).
-- **npm**: Versión 9 o superior (incluido con Node.js).
-- **PostgreSQL**: Versión 14 o superior (o Docker con contenedor de PostgreSQL).
-- **Git**: Para clonación y control de versiones.
+```
+Cargos (1) ──────────< (N) Empleados (1) ──────────< (N) HorasTrabajadas
+                                (1) ──────────< (N) Liquidaciones
+
+ConfiguracionNomina (Parámetros globales dinámicos)
+```
+
+- **`cargos`**: ID, nombre, valor_hora_minimo, valor_hora_maximo, activo.
+- **`empleados`**: ID, nombre, apellido, documento (unique), correo (unique), cargo_id, valor_hora, numero_hijos, activo.
+- **`horas_trabajadas`**: ID, empleado_id, periodo, horas, unique(empleado_id, periodo).
+- **`liquidaciones`**: ID, empleado_id, periodo, horas_trabajadas, valor_hora, numero_hijos, cargo_nombre, salario_bruto, bono_hijos, porcentaje_seguridad_social, valor_seguridad_social, salario_neto, estado (`PENDIENTE`, `CALCULADA`, `ANULADA`), fecha_liquidacion, unique(empleado_id, periodo).
+- **`configuraciones_nomina`**: ID, clave (unique), valor, descripcion.
 
 ---
 
-## 4. Cómo Instalar Node.js
+## 5. Endpoints de la API REST
 
-### En Ubuntu / Debian:
-```bash
-# Mediante NodeSource
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
+### Cargos
+- `GET /api/cargos` - Listar cargos con límites salariales
+- `GET /api/cargos/:id` - Consultar cargo por ID
 
-### En Arch Linux:
-```bash
-sudo pacman -S nodejs npm
-```
+### Empleados
+- `GET /api/empleados` - Listar empleados (búsqueda y filtros)
+- `GET /api/empleados/:id` - Consultar empleado por ID
+- `POST /api/empleados` - Crear empleado (valida rango y duplicados)
+- `PUT /api/empleados/:id` - Actualizar empleado
+- `DELETE /api/empleados/:id` - Desactivar empleado (soft delete)
 
-### En macOS (Homebrew):
-```bash
-brew install node
-```
+### Horas Trabajadas (Parte 2)
+- `GET /api/horas` - Consultar registros de horas (filtros: `?empleadoId=1&periodo=2026-09`)
+- `GET /api/horas/:id` - Consultar registro específico de horas
+- `POST /api/horas` - Registrar horas (`empleadoId`, `periodo`, `horas`)
+- `PUT /api/horas/:id` - Actualizar registro de horas
+- `DELETE /api/horas/:id` - Eliminar registro de horas
 
-### En Windows:
-Descargue e instale el instalador LTS desde [nodejs.org](https://nodejs.org/).
+### Liquidación de Nómina (Parte 2)
+- `POST /api/liquidaciones/calcular` - Previsualizar cálculo financiero sin guardar
+- `POST /api/liquidaciones` - Confirmar y guardar liquidación (transaccional)
+- `GET /api/liquidaciones` - Listar historial (filtros: `?empleadoId=1&periodo=2026-09&estado=CALCULADA`)
+- `GET /api/liquidaciones/:id` - Consultar detalle inmutable y auditoría
+- `PATCH /api/liquidaciones/:id/anular` - Anular una liquidación
 
-Verifique la instalación:
-```bash
-node -v
-npm -v
-```
-
----
-
-## 5. Cómo Instalar PostgreSQL
-
-### En Ubuntu / Debian:
-```bash
-sudo apt-get update
-sudo apt-get install -y postgresql postgresql-contrib
-sudo systemctl enable postgresql
-sudo systemctl start postgresql
-```
-
-### En Arch Linux:
-```bash
-sudo pacman -S postgresql
-sudo -u postgres initdb -D /var/lib/postgres/data
-sudo systemctl enable --now postgresql
-```
-
-### Mediante Docker (Alternativa recomendada si ya dispone de Docker):
-```bash
-docker run --name nomina_postgres -e POSTGRES_USER=nomina_user -e POSTGRES_PASSWORD=nomina_password -e POSTGRES_DB=nomina_db -p 5432:5432 -d postgres:16-alpine
-```
+### Configuración (Parte 2)
+- `GET /api/configuracion/seguridad-social` - Consultar porcentaje actual
+- `PUT /api/configuracion/seguridad-social` - Actualizar porcentaje global (`{ "porcentaje": 4 }`)
 
 ---
 
-## 6. Cómo Crear la Base de Datos
+## 6. Cómo Ejecutar el Proyecto
 
-Inicie sesión en la consola de PostgreSQL y cree la base de datos:
-
+### Paso 1: Levantar la Base de Datos PostgreSQL
+Si utiliza Docker:
 ```bash
-# Acceder a la consola con el usuario postgres
-sudo -u postgres psql
-
-# Dentro del prompt interactivo de PostgreSQL:
-CREATE USER nomina_user WITH PASSWORD 'nomina_password_seguro';
-CREATE DATABASE nomina_db OWNER nomina_user;
-GRANT ALL PRIVILEGES ON DATABASE nomina_db TO nomina_user;
-\q
+docker-compose up -d postgres
 ```
+O verifique que PostgreSQL esté corriendo en el puerto `5432` con la base de datos `nomina_db`.
 
----
-
-## 7. Cómo Configurar las Variables de Entorno (.env)
-
-El proyecto incluye plantillas `.env.example` en cada módulo.
-
-### Backend (`backend/.env`):
-Cree el archivo `backend/.env` copiando de `backend/.env.example`:
+### Paso 2: Configurar y Ejecutar el Backend
 ```bash
-cp backend/.env.example backend/.env
-```
-
-Edite `backend/.env` con sus credenciales de base de datos:
-```env
-NODE_ENV=development
-PORT=4000
-DATABASE_URL="postgresql://usuario:contraseña@localhost:5432/nomina_db?schema=public"
-FRONTEND_URL="http://localhost:5173"
-```
-
-### Frontend (`frontend/.env`):
-Cree el archivo `frontend/.env` copiando de `frontend/.env.example`:
-```bash
-cp frontend/.env.example frontend/.env
-```
-
-Contenido de `frontend/.env`:
-```env
-VITE_API_URL=http://localhost:4000/api
-```
-
----
-
-## 8. Cómo Instalar Dependencias
-
-Instale las dependencias tanto en el backend como en el frontend:
-
-```bash
-# 1. Dependencias del backend
 cd backend
 npm install
-
-# 2. Dependencias del frontend
-cd ../frontend
-npm install
-```
-
----
-
-## 9. Cómo Ejecutar las Migraciones de Base de Datos
-
-En el directorio `backend/`:
-
-```bash
-cd backend
-npx prisma generate
-npx prisma migrate dev --name init_cargos_and_empleados
-```
-
-Esto creará automáticamente en PostgreSQL las tablas `cargos` y `empleados` con todas sus restricciones de integridad referencial y tipos decimales.
-
----
-
-## 10. Cómo Ejecutar el Seed (Datos Iniciales)
-
-Para poblar la base de datos con los 3 cargos institucionales y empleados de prueba:
-
-```bash
-cd backend
+npx prisma migrate dev
 npm run prisma:seed
-```
-
-### Cargos sembrados:
-1. **Gerente:** Rango permitido: **$100.000 - $110.000 COP**
-2. **Administrador:** Rango permitido: **$50.000 - $60.000 COP**
-3. **Operario:** Rango permitido: **$25.000 - $30.000 COP**
-
-### Empleados de prueba iniciales:
-- **Juan Pérez:** Documento `100000001`, Cargo `Administrador`, Tarifa `$55.000`, Hijos `2`.
-- **María Gómez:** Documento `100000002`, Cargo `Gerente`, Tarifa `$105.000`, Hijos `1`.
-- **Carlos Rodríguez:** Documento `100000003`, Cargo `Operario`, Tarifa `$28.000`, Hijos `0`.
-
----
-
-## 11. Cómo Iniciar el Backend
-
-En el directorio `backend/`:
-
-```bash
-cd backend
 npm run dev
 ```
+El servidor backend se iniciará en `http://localhost:4000`.
 
-El servidor iniciará en: **`http://localhost:4000`**
-Endpoint de salud disponible en: **`http://localhost:4000/api/health`**
-
----
-
-## 12. Cómo Iniciar el Frontend
-
-En una terminal independiente, en el directorio `frontend/`:
-
+### Paso 3: Configurar y Ejecutar el Frontend
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
-
-Abra su navegador web en: **`http://localhost:5173`**
+La aplicación web estará disponible en `http://localhost:5173`.
 
 ---
 
-## 13. Cómo Probar la API y Ejecutar las Pruebas Automatizadas
+## 7. Cómo Ejecutar las Pruebas Automatizadas
 
-El backend incluye una suite completa de pruebas automatizadas con **Vitest** y **Supertest** que verifican los 16 casos de prueba solicitados:
+El backend cuenta con una suite completa de pruebas unitarias y de integración en Vitest que cubren el 100% de los requerimientos de la Parte 1 y Parte 2:
 
 ```bash
 cd backend
 npm test
 ```
 
-### Casos de prueba cubiertos:
-1. Crear empleado correctamente con datos válidos.
-2. Rechazar empleado con documento duplicado (código HTTP `409 Conflict`).
-3. Rechazar empleado con correo inválido (código HTTP `400 Bad Request`).
-4. Rechazar empleado sin nombre (código HTTP `400 Bad Request`).
-5. Rechazar empleado sin apellido (código HTTP `400 Bad Request`).
-6. Rechazar empleado sin cargo (código HTTP `400 Bad Request`).
-7. Crear empleado con tarifa por hora válida dentro del rango del cargo.
-8. Rechazar empleado con valor por hora inferior al mínimo del cargo (`HOURLY_RATE_OUT_OF_RANGE`).
-9. Rechazar empleado con valor por hora superior al máximo del cargo (`HOURLY_RATE_OUT_OF_RANGE`).
-10. Rechazar empleado con número de hijos negativo.
-11. Consultar todos los empleados (`GET /api/empleados`).
-12. Consultar empleado por ID (`GET /api/empleados/:id`).
-13. Actualizar empleado respetando los rangos salariales (`PUT /api/empleados/:id`).
-14. Desactivar lógicamente un empleado (`activo = false`).
-15. Consultar los cargos disponibles (`GET /api/cargos`).
-16. Verificar la relación íntegra entre empleado y cargo.
+### Pruebas Obligatorias Verificadas:
+- [x] **PRUEBA 1:** 0 hijos $\rightarrow$ Bono = $\$0$
+- [x] **PRUEBA 2:** 1 hijo $\rightarrow$ Bono = $\$250.000$
+- [x] **PRUEBA 3:** 2 hijos $\rightarrow$ Bono = $\$400.000$
+- [x] **PRUEBA 4:** 3 hijos $\rightarrow$ Bono = $\$600.000$
+- [x] **PRUEBA 5:** 5 hijos $\rightarrow$ Bono = $\$600.000$
+- [x] **PRUEBA 6:** 176 horas a $\$55.000$/hora $\rightarrow$ Salario Bruto = $\$9.680.000$
+- [x] **PRUEBA 7:** Tarifa variable $\rightarrow$ Utiliza el valor real almacenado del empleado.
+- [x] **PRUEBA 8:** Horas negativas ($-10$) $\rightarrow$ Rechazo con `400 Bad Request`.
+- [x] **PRUEBA 9:** Horas superiores al límite ($301$ horas) $\rightarrow$ Rechazo con `400 Bad Request`.
+- [x] **PRUEBA 10:** Liquidación duplicada en el mismo periodo $\rightarrow$ Rechazo con `409 Conflict` ("El empleado ya tiene una liquidación para este periodo.").
+- [x] **PRUEBA 11:** Empleado inexistente $\rightarrow$ `404 Not Found`.
+- [x] **PRUEBA 12:** Empleado inactivo $\rightarrow$ Impide liquidación con `400 Bad Request`.
+- [x] **PRUEBA 13:** Cambio posterior de tarifa o hijos en el empleado $\rightarrow$ La liquidación histórica permanece idéntica.
+- [x] **PRUEBA 14:** Modificación del porcentaje de seguridad social $\rightarrow$ Aplica a nuevas liquidaciones y preserva las pasadas.
+- [x] **PRUEBA SEGURIDAD:** Intento de inyección de `salarioNeto` malicioso desde el cliente $\rightarrow$ Backend ignora y recalcula.
+- [x] **CRUD HORAS:** Validaciones de formato `YYYY-MM`, creación, consulta, edición y eliminación.
 
-### Pruebas Rápidas con `curl`:
+**Total:** 38 pruebas automatizadas pasando exitosamente.
 
-**Consultar Cargos:**
+---
+
+## 8. Cómo Probar una Liquidación Manualmente
+
+### Opción A: A través de la Interfaz Web (Frontend)
+1. Abra el navegador en `http://localhost:5173`.
+2. En la barra superior, seleccione la pestaña **"Horas Trabajadas"**.
+3. Haga clic en **"Registrar Horas"**, elija a `Juan Pérez`, periodo `2026-09` y digite `176` horas. Guarde el registro.
+4. Vaya a la pestaña **"Liquidación de Nómina"** $\rightarrow$ **"Liquidar Nómina"**.
+5. Seleccione a `Juan Pérez`, periodo `2026-09`. Haga clic en **"Cargar Horas"** (aparecerán automáticamente las 176 horas).
+6. Presione **"Calcular Liquidación"**: Verá la previsualización completa:
+   - Salario Bruto: $\$9.680.000$
+   - Bono por Hijos: $\$400.000$
+   - Seguridad Social ($4\%$): $\$387.200$
+   - Salario Neto: $\$9.692.800$
+7. Haga clic en **"Confirmar Liquidación"**: Se guardará la liquidación y se abrirá el **Comprobante de Auditoría**.
+8. En la pestaña **"Historial de Liquidaciones"**, podrá consultar el registro guardado, filtrar por periodo o empleado, y ver el comprobante en cualquier momento.
+
+### Opción B: A través de cURL / API REST
 ```bash
-curl -s http://localhost:4000/api/cargos
-```
-
-**Consultar Empleados:**
-```bash
-curl -s http://localhost:4000/api/empleados
-```
-
-**Crear un Empleado Válido:**
-```bash
-curl -X POST http://localhost:4000/api/empleados \
+# 1. Previsualizar cálculo
+curl -X POST http://localhost:4000/api/liquidaciones/calcular \
   -H "Content-Type: application/json" \
-  -d '{
-    "nombre": "Andrés",
-    "apellido": "López",
-    "documento": "100000005",
-    "correo": "andres.lopez@empresa.com",
-    "cargoId": 2,
-    "valorHora": 54000,
-    "numeroHijos": 1
-  }'
-```
+  -d '{"empleadoId": 1, "periodo": "2026-09", "horasTrabajadas": 176}'
 
-**Probar Rechazo por Tarifa Fuera de Rango:**
-```bash
-curl -X POST http://localhost:4000/api/empleados \
+# 2. Confirmar liquidación
+curl -X POST http://localhost:4000/api/liquidaciones \
   -H "Content-Type: application/json" \
-  -d '{
-    "nombre": "Invalido",
-    "apellido": "Sueldo",
-    "documento": "100000006",
-    "correo": "invalido@empresa.com",
-    "cargoId": 2,
-    "valorHora": 90000,
-    "numeroHijos": 0
-  }'
-```
-*Respuesta:* `400 Bad Request` con código `HOURLY_RATE_OUT_OF_RANGE`.
-
----
-
-## 14. Estructura del Proyecto
-
-```
-sistema-nomina/
-├── backend/
-│   ├── prisma/
-│   │   ├── migrations/             # Migraciones versionadas de SQL
-│   │   ├── schema.prisma           # Esquema de datos Prisma (PostgreSQL)
-│   │   └── seed.ts                 # Script de siembra inicial
-│   ├── src/
-│   │   ├── config/                 # Configuración de entorno y conexión Prisma
-│   │   │   ├── environment.ts
-│   │   │   └── prisma.ts
-│   │   ├── controllers/            # Controladores de solicitudes HTTP
-│   │   │   ├── cargo.controller.ts
-│   │   │   └── empleado.controller.ts
-│   │   ├── middlewares/            # Middlewares (manejo de errores, CORS)
-│   │   │   └── errorHandler.ts
-│   │   ├── routes/                 # Enrutadores REST de Express
-│   │   │   ├── cargo.routes.ts
-│   │   │   └── empleado.routes.ts
-│   │   ├── services/               # Lógica de dominio y reglas de negocio
-│   │   │   ├── cargo.service.ts
-│   │   │   └── empleado.service.ts
-│   │   ├── utils/                  # Formateadores, respuestas y errores personalizados
-│   │   │   ├── errors.ts
-│   │   │   ├── formatters.ts
-│   │   │   └── response.ts
-│   │   ├── validators/             # Esquemas de validación Zod
-│   │   │   └── empleado.validator.ts
-│   │   ├── app.ts                  # Configuración de Express
-│   │   └── server.ts               # Arranque del servidor HTTP
-│   ├── tests/                      # Suite de pruebas automatizadas
-│   │   └── api.test.ts
-│   ├── .env.example
-│   ├── Dockerfile
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/             # Componentes modulares de interfaz
-│   │   │   ├── AlertBanner.tsx
-│   │   │   ├── ConfirmDialog.tsx
-│   │   │   ├── EmployeeDetailModal.tsx
-│   │   │   ├── EmployeeFormModal.tsx
-│   │   │   ├── EmployeeTable.tsx
-│   │   │   └── Navbar.tsx
-│   │   ├── pages/                  # Vistas de la aplicación
-│   │   │   └── EmployeesPage.tsx
-│   │   ├── services/               # Consumo de la API REST
-│   │   │   ├── api.ts
-│   │   │   ├── cargoService.ts
-│   │   │   └── empleadoService.ts
-│   │   ├── types/                  # Definiciones e interfaces TypeScript
-│   │   │   └── index.ts
-│   │   ├── utils/                  # Formateadores (COP, fechas)
-│   │   │   └── formatters.ts
-│   │   ├── App.tsx                 # Contenedor raíz
-│   │   ├── index.css               # Estilos globales y directivas Tailwind
-│   │   ├── main.tsx                # Punto de montaje React
-│   │   └── vite-env.d.ts
-│   ├── .env.example
-│   ├── Dockerfile
-│   ├── index.html
-│   ├── nginx.conf
-│   ├── package.json
-│   ├── postcss.config.js
-│   ├── tailwind.config.js
-│   ├── tsconfig.json
-│   ├── tsconfig.node.json
-│   └── vite.config.ts
-│
-├── docs/                           # Documentación técnica complementaria
-│   ├── api.md                      # Especificación completa de endpoints
-│   └── architecture.md             # Diagramas arquitectónicos y decisiones
-│
-├── .gitignore                      # Exclusiones de Git (node_modules, .env, dist)
-├── docker-compose.yml              # Orquestación de contenedores
-└── README.md                       # Guía general del proyecto
+  -d '{"empleadoId": 1, "periodo": "2026-09", "horasTrabajadas": 176}'
 ```
 
 ---
 
-## 15. Resumen de Endpoints Disponibles
+## 9. Alcance Delimitado: Parte 2 vs. Parte 3
 
-| Método | Endpoint | Descripción | Códigos HTTP |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/health` | Estado del servidor | 200 |
-| `GET` | `/api/cargos` | Listar cargos con rangos salariales | 200 |
-| `GET` | `/api/cargos/:id` | Consultar cargo por ID | 200, 404 |
-| `GET` | `/api/empleados` | Listar empleados (búsqueda y filtros) | 200 |
-| `GET` | `/api/empleados/:id` | Consultar empleado por ID | 200, 404 |
-| `POST` | `/api/empleados` | Crear empleado (validando rango y duplicados) | 201, 400, 409 |
-| `PUT` | `/api/empleados/:id` | Actualizar empleado | 200, 400, 404, 409 |
-| `DELETE` | `/api/empleados/:id` | Desactivar empleado (eliminación lógica) | 200, 404 |
+### Implementado en esta etapa (Parte 2):
+- [x] Modelo relacional e índices compuestos para `horas_trabajadas` y `liquidaciones`.
+- [x] Tabla y servicio de configuración dinámica de seguridad social.
+- [x] Fórmulas matemáticas de salario bruto, bono por hijos escalonado, seguridad social y salario neto.
+- [x] Endpoints CRUD completos para Horas Trabajadas y Liquidaciones.
+- [x] Flujo de previsualización previa a la confirmación en Frontend y Backend.
+- [x] Protección estricta contra liquidaciones duplicadas (409 Conflict).
+- [x] Inmutabilidad histórica de auditoría (snapshot de parámetros).
+- [x] Pestañas de navegación en React (Gestión de Empleados, Horas Trabajadas, Liquidación de Nómina).
+- [x] 38 pruebas unitarias y de integración automatizadas.
 
----
-
-## 16. Alcance Delimitado: Parte 1 vs. Próximas Etapas
-
-### Implementado en esta etapa (Parte 1):
-- [x] Estructura modular del proyecto y buenas prácticas fullstack.
-- [x] Base de datos PostgreSQL con migraciones y modelos Prisma.
-- [x] Precisión monetaria garantizada con tipos Decimal.
-- [x] CRUD completo de Empleados y consulta de Cargos.
-- [x] Validación estricta de límites salariales por cargo.
-- [x] Manejo centralizado de errores y códigos de estado HTTP semánticos.
-- [x] Frontend interactivo en React 18, TypeScript y Tailwind CSS con diseño profesional.
-- [x] Suite de 16 pruebas automatizadas de integración aprobadas al 100%.
-
-### Reservado estrictamente para la Parte 2 y posteriores:
-- Motor de liquidación mensual de nómina.
-- Cálculo de horas trabajadas y recargos.
-- Deducciones de seguridad social y prestaciones legales.
-- Cálculo de auxilio de transporte y bonos por hijos.
-- Generación de volantes de pago en PDF.
-- Envío de comprobantes por correo electrónico.
-- Sistema de autenticación con JWT y control de acceso basado en roles (RBAC).
-- Historial acumulado y reportes financieros.
+### Reservado para la Parte 3 (No implementado en esta fase):
+- Generación de comprobantes y volantes de pago en PDF.
+- Envío automático de comprobantes por correo electrónico (SMTP / Nodemailer).
+- Notificaciones push o al usuario.
+- Dashboard analítico financiero avanzado con gráficos y métricas acumuladas.
+- Autenticación mediante tokens JWT y control de acceso basado en roles (RBAC).
+- Reportes contables avanzados.

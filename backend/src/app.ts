@@ -6,6 +6,9 @@ import { env } from './config/environment';
 import { errorHandler } from './middlewares/errorHandler';
 import cargoRoutes from './routes/cargo.routes';
 import empleadoRoutes from './routes/empleado.routes';
+import horasRoutes from './routes/horas.routes';
+import liquidacionRoutes from './routes/liquidacion.routes';
+import configuracionRoutes from './routes/configuracion.routes';
 import { sendSuccess } from './utils/response';
 import { NotFoundError } from './utils/errors';
 
@@ -24,7 +27,7 @@ app.use(
       }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
@@ -53,12 +56,15 @@ app.get('/api/health', (_req: Request, res: Response) => {
 // Rutas de la API
 app.use('/api/cargos', cargoRoutes);
 app.use('/api/empleados', empleadoRoutes);
+app.use('/api/horas', horasRoutes);
+app.use('/api/liquidaciones', liquidacionRoutes);
+app.use('/api/configuracion', configuracionRoutes);
 
 // Ruta raíz con metadatos de la API
 app.get('/', (_req: Request, res: Response) => {
   res.json({
     nombre: 'Sistema de Automatización de Nómina - API',
-    version: '1.0.0 (Parte 1)',
+    version: '2.0.0 (Parte 2 - Motor de Liquidación)',
     estado: 'Activo',
     endpoints: {
       health: 'GET /api/health',
@@ -69,6 +75,17 @@ app.get('/', (_req: Request, res: Response) => {
       crearEmpleado: 'POST /api/empleados',
       actualizarEmpleado: 'PUT /api/empleados/:id',
       desactivarEmpleado: 'DELETE /api/empleados/:id',
+      horas: 'GET /api/horas',
+      crearHoras: 'POST /api/horas',
+      horasById: 'GET /api/horas/:id',
+      actualizarHoras: 'PUT /api/horas/:id',
+      eliminarHoras: 'DELETE /api/horas/:id',
+      calcularLiquidacion: 'POST /api/liquidaciones/calcular',
+      liquidaciones: 'GET /api/liquidaciones',
+      crearLiquidacion: 'POST /api/liquidaciones',
+      liquidacionById: 'GET /api/liquidaciones/:id',
+      configuracionSeguridadSocial: 'GET /api/configuracion/seguridad-social',
+      actualizarConfiguracionSeguridadSocial: 'PUT /api/configuracion/seguridad-social',
     },
   });
 });

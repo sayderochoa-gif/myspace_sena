@@ -369,3 +369,185 @@ Ejecuta la eliminación lógica (soft delete) del empleado, estableciendo `activ
   }
 }
 ```
+
+---
+
+## 4. Endpoints de Horas Trabajadas (Parte 2)
+
+### `GET /horas`
+Consulta los registros mensuales de horas trabajadas.
+
+- **Parámetros de consulta (Query params):**
+  - `empleadoId`: Filtra por ID de empleado (ej. `?empleadoId=1`).
+  - `periodo`: Filtra por periodo `YYYY-MM` (ej. `?periodo=2026-09`).
+
+**Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Registros de horas obtenidos exitosamente",
+  "data": [
+    {
+      "id": 1,
+      "empleadoId": 1,
+      "periodo": "2026-09",
+      "horas": 176,
+      "empleado": {
+        "id": 1,
+        "nombre": "Juan",
+        "apellido": "Pérez",
+        "documento": "100000001",
+        "cargo": { "nombre": "Administrador" }
+      },
+      "createdAt": "2026-10-04T18:00:00.000Z",
+      "updatedAt": "2026-10-04T18:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `GET /horas/:id`
+Consulta un registro específico de horas por ID.
+
+### `POST /horas`
+Registra las horas trabajadas por un empleado en un periodo.
+
+**Cuerpo de la petición (JSON):**
+```json
+{
+  "empleadoId": 1,
+  "periodo": "2026-09",
+  "horas": 176
+}
+```
+
+**Validaciones:**
+- `empleadoId`: Obligatorio, numérico, empleado existente y activo.
+- `periodo`: Obligatorio, formato estricto `YYYY-MM`.
+- `horas`: Obligatorias, numéricas, mayor a 0 y menor o igual a 300.
+- Unicidad: 409 si ya existen horas para ese empleado en el periodo.
+
+### `PUT /horas/:id`
+Actualiza un registro existente de horas trabajadas.
+
+### `DELETE /horas/:id`
+Elimina un registro de horas trabajadas.
+
+---
+
+## 5. Endpoints de Liquidación de Nómina (Parte 2)
+
+### `POST /liquidaciones/calcular`
+Genera la previsualización del cálculo financiero de liquidación sin persistir en la base de datos.
+
+**Cuerpo de la petición (JSON):**
+```json
+{
+  "empleadoId": 1,
+  "periodo": "2026-09",
+  "horasTrabajadas": 176
+}
+```
+
+**Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Cálculo de liquidación generado exitosamente",
+  "data": {
+    "empleadoId": 1,
+    "empleadoNombre": "Juan",
+    "empleadoApellido": "Pérez",
+    "empleadoDocumento": "100000001",
+    "cargoNombre": "Administrador",
+    "periodo": "2026-09",
+    "horasTrabajadas": 176,
+    "valorHora": 55000,
+    "numeroHijos": 2,
+    "salarioBruto": 9680000,
+    "bonoHijos": 400000,
+    "porcentajeSeguridadSocial": 4,
+    "valorSeguridadSocial": 387200,
+    "salarioNeto": 9692800
+  }
+}
+```
+
+### `POST /liquidaciones`
+Confirma y almacena permanentemente la liquidación de nómina de forma transaccional.
+
+**Cuerpo de la petición (JSON):**
+```json
+{
+  "empleadoId": 1,
+  "periodo": "2026-09",
+  "horasTrabajadas": 176
+}
+```
+
+*Nota de Seguridad:* Cualquier monto enviado por el cliente (`salarioNeto`, `salarioBruto`, etc.) es ignorado por completo. Todo se calcula en el backend.
+
+**Respuesta Exitosa (201 Created):**
+```json
+{
+  "success": true,
+  "message": "Liquidación registrada y guardada exitosamente",
+  "data": {
+    "id": 1,
+    "empleadoId": 1,
+    "periodo": "2026-09",
+    "horasTrabajadas": 176,
+    "valorHora": 55000,
+    "numeroHijos": 2,
+    "cargoNombre": "Administrador",
+    "salarioBruto": 9680000,
+    "bonoHijos": 400000,
+    "porcentajeSeguridadSocial": 4,
+    "valorSeguridadSocial": 387200,
+    "salarioNeto": 9692800,
+    "estado": "CALCULADA",
+    "fechaLiquidacion": "2026-10-04T18:30:00.000Z"
+  }
+}
+```
+
+**Errores posibles:**
+- `400 Bad Request`: Horas o periodo inválidos, o empleado inactivo.
+- `404 Not Found`: Empleado inexistente.
+- `409 Conflict`: Si el empleado ya tiene una liquidación registrada para ese periodo (`"El empleado ya tiene una liquidación para este periodo."`).
+
+### `GET /liquidaciones`
+Consulta el historial de liquidaciones con filtros opcionales.
+- `?empleadoId=1`
+- `?periodo=2026-09`
+- `?estado=CALCULADA`
+
+### `GET /liquidaciones/:id`
+Consulta el detalle inmutable y auditoría de una liquidación específica.
+
+### `PATCH /liquidaciones/:id/anular`
+Anula una liquidación cambiando su estado a `ANULADA`.
+
+---
+
+## 6. Endpoints de Configuración de Nómina
+
+### `GET /configuracion/seguridad-social`
+Obtiene el porcentaje actual de descuento para seguridad social.
+```json
+{
+  "success": true,
+  "message": "Configuración de seguridad social obtenida exitosamente",
+  "data": {
+    "porcentajeSeguridadSocial": 4
+  }
+}
+```
+
+### `PUT /configuracion/seguridad-social`
+Actualiza el porcentaje de seguridad social para futuras liquidaciones.
+```json
+{
+  "porcentaje": 5
+}
+```

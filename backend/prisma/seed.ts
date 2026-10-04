@@ -108,6 +108,18 @@ async function main() {
     console.log(`✓ Empleado registrado: ${upserted.nombre} ${upserted.apellido} (${emp.cargoNombre}, Doc: ${upserted.documento}, Valor Hora: $${upserted.valorHora})`);
   }
 
+  // 3. Sembrar Configuración inicial de Nómina (Parte 2)
+  const configSeguridadSocial = await prisma.configuracionNomina.upsert({
+    where: { clave: 'PORCENTAJE_SEGURIDAD_SOCIAL' },
+    update: {},
+    create: {
+      clave: 'PORCENTAJE_SEGURIDAD_SOCIAL',
+      valor: '4',
+      descripcion: 'Porcentaje de descuento para aportes a seguridad social (versión académica)',
+    },
+  });
+  console.log(`✓ Configuración registrada: ${configSeguridadSocial.clave} = ${configSeguridadSocial.valor}%`);
+
   console.log('✅ Seed completado exitosamente.');
 }
 
