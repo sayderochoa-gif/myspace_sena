@@ -1,4 +1,4 @@
-// Prisma Schema para Sistema de Automatización de Nómina - Parte 1
+// Prisma Schema para Sistema de Automatización de Nómina - Parte 1, 2 y 3
 
 datasource db {
   provider = "postgresql"
@@ -7,6 +7,24 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+}
+
+enum RolUsuario {
+  ADMIN
+  RRHH
+  EMPLEADO
+}
+
+enum EstadoLiquidacion {
+  PENDIENTE
+  CALCULADA
+  ANULADA
+}
+
+enum EstadoNotificacion {
+  PENDIENTE
+  ENVIADO
+  ERROR
 }
 
 model Cargo {
@@ -39,14 +57,26 @@ model Empleado {
 
   horasTrabajadas HorasTrabajadas[]
   liquidaciones   Liquidacion[]
+  usuario         Usuario?
 
   @@map("empleados")
 }
 
-enum EstadoLiquidacion {
-  PENDIENTE
-  CALCULADA
-  ANULADA
+model Usuario {
+  id           Int         @id @default(autoincrement())
+  nombre       String      @db.VarChar(100)
+  correo       String      @unique @db.VarChar(150)
+  passwordHash String      @map("password_hash") @db.VarChar(255)
+  rol          RolUsuario  @default(EMPLEADO)
+  empleadoId   Int?        @unique @map("empleado_id")
+  activo       Boolean     @default(true)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  empleado     Empleado?   @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
+  auditorias   Auditoria[]
+
+  @@map("usuarios")
 }
 
 model HorasTrabajadas {
@@ -77,14 +107,38 @@ model Liquidacion {
   valorSeguridadSocial      Decimal           @map("valor_seguridad_social") @db.Decimal(14, 2)
   salarioNeto               Decimal           @map("salario_neto") @db.Decimal(14, 2)
   estado                    EstadoLiquidacion @default(CALCULADA)
+  numeroComprobante         String?           @unique @map("numero_comprobante") @db.VarChar(50)
+  pdfPath                   String?           @map("pdf_path") @db.VarChar(255)
+  motivoAnulacion           String?           @map("motivo_anulacion") @db.Text
+  usuarioAnulacionId        Int?              @map("usuario_anulacion_id")
+  fechaAnulacion            DateTime?         @map("fecha_anulacion")
   fechaLiquidacion          DateTime          @default(now()) @map("fecha_liquidacion")
   createdAt                 DateTime          @default(now()) @map("created_at")
   updatedAt                 DateTime          @updatedAt @map("updated_at")
 
   empleado                  Empleado          @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+  notificaciones            Notificacion[]
 
   @@unique([empleadoId, periodo], name: "unique_empleado_periodo_liquidacion")
   @@map("liquidaciones")
+}
+
+model Notificacion {
+  id                  Int                @id @default(autoincrement())
+  liquidacionId       Int                @map("liquidacion_id")
+  destinatario        String             @db.VarChar(150)
+  asunto              String             @db.VarChar(200)
+  estado              EstadoNotificacion @default(PENDIENTE)
+  intentos            Int                @default(0)
+  fechaUltimoIntento  DateTime?          @map("fecha_ultimo_intento")
+  fechaEnvio          DateTime?          @map("fecha_envio")
+  error               String?            @db.Text
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  liquidacion         Liquidacion        @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+
+  @@map("notificaciones")
 }
 
 model ConfiguracionNomina {
@@ -96,4 +150,34 @@ model ConfiguracionNomina {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("configuraciones_nomina")
+}
+
+model ConfiguracionEmpresa {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @default("FinanCorp S.A.") @db.VarChar(150)
+  nit         String   @default("900.123.456-7") @db.VarChar(50)
+  direccion   String   @default("Calle 72 # 10-34, Bogotá, Colombia") @db.VarChar(200)
+  telefono    String   @default("+57 (1) 745-0000") @db.VarChar(50)
+  correo      String   @default("nomina@financorp.com") @db.VarChar(150)
+  sitioWeb    String   @default("www.financorp.com") @map("sitio_web") @db.VarChar(150)
+  logoUrl     String?  @map("logo_url") @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracion_empresa")
+}
+
+model Auditoria {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int?     @map("usuario_id")
+  accion      String   @db.VarChar(50)
+  entidad     String   @db.VarChar(50)
+  entidadId   Int?     @map("entidad_id")
+  descripcion String   @db.Text
+  ip          String?  @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  usuario     Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@map("auditorias")
 }

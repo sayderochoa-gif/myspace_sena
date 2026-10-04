@@ -5,11 +5,16 @@ import {
   updateEmpleadoSchema,
   validateRequestBody,
 } from '../validators/empleado.validator';
+import { requireAuth, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
 
+// Todas las rutas de gestión de empleados requieren autenticación y rol ADMIN o RRHH
+router.use(requireAuth, requireRole('ADMIN', 'RRHH'));
+
 // GET /api/empleados - Obtener todos los empleados (con filtros opcionales)
 router.get('/', (req, res, next) => empleadoController.getAll(req, res, next));
+
 
 // GET /api/empleados/:id - Obtener un empleado por ID
 router.get('/:id', (req, res, next) => empleadoController.getById(req, res, next));

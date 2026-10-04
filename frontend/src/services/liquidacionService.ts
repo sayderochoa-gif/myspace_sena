@@ -1,4 +1,4 @@
-import { request } from './api';
+import { request, downloadFile } from './api';
 import {
   Liquidacion,
   PrevisualizacionLiquidacion,
@@ -39,9 +39,21 @@ export const liquidacionService = {
     });
   },
 
-  anular: async (id: number): Promise<Liquidacion> => {
+  anular: async (id: number, motivo?: string): Promise<Liquidacion> => {
     return request<Liquidacion>(`/liquidaciones/${id}/anular`, {
-      method: 'PATCH',
+      method: 'POST',
+      body: JSON.stringify({ motivo: motivo || 'Corrección solicitada' }),
+    });
+  },
+
+  descargarPdf: async (id: number, numeroComprobante?: string): Promise<void> => {
+    const filename = numeroComprobante ? `volante-${numeroComprobante}.pdf` : `volante-nomina-${id}.pdf`;
+    return downloadFile(`/liquidaciones/${id}/pdf`, filename);
+  },
+
+  enviarCorreo: async (id: number): Promise<{ exito: boolean; notificacionId: number; mensaje: string }> => {
+    return request<{ exito: boolean; notificacionId: number; mensaje: string }>(`/liquidaciones/${id}/enviar`, {
+      method: 'POST',
     });
   },
 
@@ -58,3 +70,4 @@ export const liquidacionService = {
     });
   },
 };
+

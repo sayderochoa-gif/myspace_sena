@@ -1,6 +1,6 @@
 import { ApiResponse } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 export class ApiError extends Error {
   public readonly statusCode: number;
@@ -26,11 +26,16 @@ export async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const token = localStorage.getItem('nomina_token');
 
-  const defaultHeaders: HeadersInit = {
+  const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
+
+  if (token) {
+    defaultHeaders['Authorization'] = `Bearer ${token}`;
+  }
 
   const response = await fetch(url, {
     ...options,
@@ -39,6 +44,12 @@ export async function request<T>(
       ...options.headers,
     },
   });
+
+  if (response.status === 401 && !endpoint.includes('/auth/login')) {
+    localStorage.removeItem('nomina_token');
+    localStorage.removeItem('nomina_user');
+    window.dispatchEvent(new Event('auth:unauthorized'));
+  }
 
   let data: ApiResponse<T>;
 
@@ -62,3 +73,28 @@ export async function request<T>(
 
   return data.data;
 }
+
+export async function downloadFile(endpoint: string, filename: string): Promise<void> {
+  const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const token = localStorage.getItem('nomina_token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error('No se pudo descargar el archivo solicitado');
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(downloadUrl);
+  document.body.removeChild(a);
+}
+

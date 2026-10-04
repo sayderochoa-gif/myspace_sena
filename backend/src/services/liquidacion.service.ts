@@ -4,6 +4,9 @@ import { formatLiquidacion, FormattedLiquidacion } from '../utils/formatters';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { configuracionService } from './configuracion.service';
 import { CreateLiquidacionDTO, PreviewLiquidacionDTO } from '../validators/liquidacion.validator';
+import { pdfService } from './pdf.service';
+import { emailService } from './email.service';
+import { auditoriaService } from './auditoria.service';
 
 export interface LiquidacionFilterOptions {
   empleadoId?: number;
@@ -34,7 +37,6 @@ export interface PrevisualizacionLiquidacion extends CalculoLiquidacionResultado
 export class LiquidacionService {
   /**
    * Calcula el Salario Bruto = Horas Trabajadas * Valor Hora
-   * Fuente única de verdad para el cálculo de salario bruto
    */
   calcularSalarioBruto(horasTrabajadas: number, valorHora: number): number {
     if (horasTrabajadas <= 0) {
@@ -44,17 +46,12 @@ export class LiquidacionService {
       throw new BadRequestError('El valor por hora debe ser mayor a cero', 'INVALID_HOURLY_RATE');
     }
 
-    // Redondear a pesos exactos
     return Math.round(horasTrabajadas * valorHora);
   }
 
   /**
    * Calcula el Bono por Hijos según las reglas de negocio estrictas:
-   * 0 hijos: $0
-   * 1 hijo: $250.000
-   * 2 hijos: $400.000
-   * 3 o más hijos: $600.000
-   * Fuente única de verdad
+   * 0 hijos: $0 | 1 hijo: $250.000 | 2 hijos: $400.000 | >=3 hijos: $600.000
    */
   calcularBonoPorHijos(numeroHijos: number): number {
     if (numeroHijos < 0) {
@@ -64,7 +61,7 @@ export class LiquidacionService {
     if (numeroHijos === 0) return 0;
     if (numeroHijos === 1) return 250000;
     if (numeroHijos === 2) return 400000;
-    return 600000; // 3 o más hijos
+    return 600000;
   }
 
   /**
@@ -142,9 +139,13 @@ export class LiquidacionService {
 
   /**
    * Crea y guarda una liquidación de nómina de forma transaccional y segura
-   * Almacena una copia de los valores históricos utilizados en el cálculo
+   * Genera comprobante único, almacena snapshot, crea PDF e inicia despacho de correo
    */
-  async crearLiquidacion(dto: CreateLiquidacionDTO): Promise<FormattedLiquidacion> {
+  async crearLiquidacion(
+    dto: CreateLiquidacionDTO,
+    usuarioId?: number | null,
+    ip?: string
+  ): Promise<FormattedLiquidacion> {
     // 1. Validar existencia del empleado
     const empleado = await prisma.empleado.findUnique({
       where: { id: dto.empleadoId },
@@ -197,9 +198,9 @@ export class LiquidacionService {
     const valorSeguridadSocial = this.calcularSeguridadSocial(salarioBruto, porcentajeSeguridadSocial);
     const salarioNeto = this.calcularSalarioNeto(salarioBruto, bonoHijos, valorSeguridadSocial);
 
-    // 6. Transacción segura en Prisma para guardar la liquidación y asegurar registro de horas
+    // 6. Transacción segura en Prisma
     const liquidacionCreada = await prisma.$transaction(async (tx) => {
-      // Registrar o sincronizar horas trabajadas en horas_trabajadas si no existen
+      // Sincronizar horas trabajadas en horas_trabajadas si no existen
       await tx.horasTrabajadas.upsert({
         where: {
           unique_empleado_periodo_horas: {
@@ -243,14 +244,54 @@ export class LiquidacionService {
         },
       });
 
-      return liq;
+      // Generar identificador de comprobante único
+      const numeroComprobante = `NOM-${liq.periodo}-${String(liq.id).padStart(6, '0')}`;
+      const liqActualizada = await tx.liquidacion.update({
+        where: { id: liq.id },
+        data: { numeroComprobante },
+        include: {
+          empleado: {
+            include: {
+              cargo: true,
+            },
+          },
+        },
+      });
+
+      return liqActualizada;
     });
 
-    return formatLiquidacion(liquidacionCreada);
+    // 7. Generar PDF automáticamente para el comprobante
+    try {
+      await pdfService.generarVolantePago(liquidacionCreada.id, usuarioId, ip);
+    } catch (pdfErr) {
+      console.error('⚠️ Error generando PDF inicial:', pdfErr);
+    }
+
+    // 8. Enviar correo automáticamente al empleado (en segundo plano / no bloqueante si falla)
+    try {
+      await emailService.enviarVolantePorCorreo(liquidacionCreada.id, usuarioId, ip);
+    } catch (mailErr) {
+      console.error('⚠️ Error despachando correo inicial:', mailErr);
+    }
+
+    // 9. Registrar auditoría de creación de liquidación
+    await auditoriaService.registrar({
+      usuarioId: usuarioId ?? null,
+      accion: 'CREAR_LIQUIDACION',
+      entidad: 'LIQUIDACION',
+      entidadId: liquidacionCreada.id,
+      descripcion: `Liquidada nómina para ${empleado.nombre} ${empleado.apellido} (${dto.periodo}) - Neto: $${salarioNeto.toLocaleString('es-CO')}`,
+      ip,
+    });
+
+    // Retornar liquidación con sus notificaciones asociadas
+    const resultadoCompleto = await this.obtenerLiquidacion(liquidacionCreada.id);
+    return resultadoCompleto;
   }
 
   /**
-   * Obtiene una liquidación por su ID con todo el detalle de auditoría
+   * Obtiene una liquidación por su ID con todo el detalle de auditoría y notificaciones
    */
   async obtenerLiquidacion(id: number): Promise<FormattedLiquidacion> {
     const liquidacion = await prisma.liquidacion.findUnique({
@@ -260,6 +301,9 @@ export class LiquidacionService {
           include: {
             cargo: true,
           },
+        },
+        notificaciones: {
+          orderBy: { createdAt: 'desc' },
         },
       },
     });
@@ -302,6 +346,9 @@ export class LiquidacionService {
             cargo: true,
           },
         },
+        notificaciones: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
       orderBy: [
         { fechaLiquidacion: 'desc' },
@@ -313,11 +360,17 @@ export class LiquidacionService {
   }
 
   /**
-   * Anula una liquidación cambiando su estado a ANULADA
+   * Anula una liquidación cambiando su estado a ANULADA y registrando el motivo y auditoría
    */
-  async anularLiquidacion(id: number): Promise<FormattedLiquidacion> {
+  async anularLiquidacion(
+    id: number,
+    motivo: string = 'Corrección requerida',
+    usuarioId?: number | null,
+    ip?: string
+  ): Promise<FormattedLiquidacion> {
     const existing = await prisma.liquidacion.findUnique({
       where: { id },
+      include: { empleado: true },
     });
 
     if (!existing) {
@@ -327,10 +380,17 @@ export class LiquidacionService {
       );
     }
 
+    if (existing.estado === 'ANULADA') {
+      throw new BadRequestError('La liquidación ya se encuentra anulada', 'ALREADY_ANULADA');
+    }
+
     const anulada = await prisma.liquidacion.update({
       where: { id },
       data: {
         estado: 'ANULADA',
+        motivoAnulacion: motivo,
+        usuarioAnulacionId: usuarioId ?? null,
+        fechaAnulacion: new Date(),
       },
       include: {
         empleado: {
@@ -338,7 +398,25 @@ export class LiquidacionService {
             cargo: true,
           },
         },
+        notificaciones: true,
       },
+    });
+
+    // Regenerar el PDF para reflejar la marca de ANULADA
+    try {
+      await pdfService.generarVolantePago(id, usuarioId, ip);
+    } catch (pdfErr) {
+      console.warn('No se pudo regenerar PDF tras anulación:', pdfErr);
+    }
+
+    // Registrar en auditoría
+    await auditoriaService.registrar({
+      usuarioId: usuarioId ?? null,
+      accion: 'ANULAR_LIQUIDACION',
+      entidad: 'LIQUIDACION',
+      entidadId: id,
+      descripcion: `Liquidación #${id} (${existing.periodo}) anulada. Motivo: ${motivo}`,
+      ip,
     });
 
     return formatLiquidacion(anulada);

@@ -19,7 +19,11 @@ export class ConfiguracionController {
   async updateSeguridadSocial(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const porcentajeNum = Number(req.body.porcentaje ?? req.body.porcentajeSeguridadSocial);
-      const porcentajeActualizado = await configuracionService.setPorcentajeSeguridadSocial(porcentajeNum);
+      const porcentajeActualizado = await configuracionService.setPorcentajeSeguridadSocial(
+        porcentajeNum,
+        req.user?.id,
+        req.ip
+      );
       sendSuccess(
         res,
         { porcentajeSeguridadSocial: porcentajeActualizado },
@@ -29,6 +33,25 @@ export class ConfiguracionController {
       next(error);
     }
   }
+
+  async getEmpresa(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const empresa = await configuracionService.getEmpresa();
+      sendSuccess(res, empresa, 'Configuración institucional de empresa obtenida exitosamente');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateEmpresa(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const empresa = await configuracionService.updateEmpresa(req.body, req.user?.id, req.ip);
+      sendSuccess(res, empresa, 'Datos corporativos de la empresa actualizados exitosamente');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const configuracionController = new ConfiguracionController();
+

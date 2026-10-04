@@ -1,260 +1,247 @@
-# Sistema de Automatización de Nómina - Parte 1 & Parte 2
+# Sistema de Automatización de Nómina - Solución Integral (Partes 1, 2 y 3)
 
-Sistema integral de gestión de personal y automatización de nómina diseñado para empresas del sector financiero.
-
-Este repositorio contiene la **Parte 1** (Gestión de Empleados, Cargos y Bandas Salariales) y la **Parte 2** (**Motor de Liquidación de Nómina**, Registro de Horas Trabajadas, Deducciones de Seguridad Social y Preservación Histórica e Inmutable).
+Sistema integral de liquidación y automatización de nómina desarrollado para el sector financiero con arquitectura desacoplada, alta seguridad, auditoría inmutable y experiencia de usuario moderna.
 
 ---
 
-## 1. ¿Qué es el proyecto?
+## 1. Resumen Ejecutivo del Proyecto
 
-El **Sistema de Automatización de Nómina** permite a una entidad financiera:
-1. Gestionar eficientemente su talento humano y parametrizar los cargos de la organización con sus respectivas bandas salariales.
-2. Registrar y controlar mensualmente las **horas trabajadas** por cada empleado asociadas a un periodo específico (`YYYY-MM`).
-3. Calcular de forma automática, segura y precisa el **Salario Bruto**, el **Bono por Hijos**, el **Aporte a Seguridad Social** y el **Salario Neto**.
-4. Ofrecer una **previsualización en tiempo real** previa a la confirmación para evitar errores humanos.
-5. Evitar **liquidaciones duplicadas** para un mismo empleado en un mismo periodo (control a nivel de API y restricción única en PostgreSQL).
-6. Consultar el **historial de liquidaciones** y el **detalle de auditoría**, garantizando la inmutabilidad histórica frente a cambios futuros en la ficha del empleado o en las tarifas de configuración.
+El **Sistema de Automatización de Nómina** es una solución Full Stack empresarial diseñada para procesar y auditar la nómina de colaboradores bajo estrictas políticas de negocio y normativas de seguridad:
+
+1. **Gestión de Talento Humano y Cargos:** Administración de cargos organizacionales con bandas salariales mínimas y máximas, y fijación individual de tarifas por hora para cada colaborador.
+2. **Control de Horas Laboradas:** Registro mensual de horas con validaciones estrictas y formato estándar `YYYY-MM`.
+3. **Motor Matemático de Liquidación:**
+   - Salario Bruto = $\text{Horas Trabajadas} \times \text{Valor Hora}$
+   - Bono por Hijos (escala progresiva de incentivos familiares)
+   - Deducción configurable de Seguridad Social (base académica 4%)
+   - Salario Neto a consignar
+   - Instantánea histórica inmutable (*snapshot*) que congela valores y previene alteraciones futuras.
+4. **Seguridad y Control de Acceso RBAC:** Autenticación segura mediante tokens JWT, hashing de contraseñas con bcrypt, protección contra fuerza bruta y separación de roles (**ADMIN**, **RRHH**, **EMPLEADO**).
+5. **Dashboard en Tiempo Real:** Métricas agregadas calculadas directamente en PostgreSQL (total empleados, activos, liquidaciones del periodo, montos consolidados y telemetría de correos).
+6. **Volantes de Pago Oficiales en PDF:** Generación automática con membrete corporativo, identificador único estandarizado (`NOM-YYYY-MM-XXXXXX`), tablas detalladas y marca de anulación.
+7. **Despacho y Reintento de Correos (SMTP):** Integración con Nodemailer, registro de estado (`PENDIENTE`, `ENVIADO`, `ERROR`) y desacoplamiento de fallos: la caída del servidor de correo no invalida ni bloquea la liquidación.
+8. **Portal del Colaborador:** Acceso exclusivo y privado donde cada empleado solo puede consultar sus propios datos y descargar sus volantes oficiales.
+9. **Pista de Auditoría Inmutable:** Registro detallado de accesos, creación de liquidaciones, anulaciones con motivo, generación de PDF y cambios en configuraciones.
+10. **Anulación Controlada:** Posibilidad de invalidar comprobantes con motivo justificado y fecha sin borrado físico destructivo.
 
 ---
 
-## 2. Reglas de Negocio y Fórmulas del Motor de Liquidación (Parte 2)
+## 2. Credenciales de Acceso para Pruebas y Demostración
 
-### 2.1. Cargos y Tarifas por Hora
-Los empleados tienen asignado un `valor_hora` individual fijado dentro de los límites del cargo:
+La base de datos cuenta con usuarios semilla listos para probar todos los roles del sistema:
 
+| Rol | Correo Electrónico | Contraseña | Alcance y Permisos |
+| :--- | :--- | :--- | :--- |
+| **ADMIN** | `admin@financorp.com` | `NominaSegura2026!` | Control total: Empleados, Cargos, Horas, Liquidaciones, Dashboard, PDF, Correo, Parámetros y **Auditoría**. |
+| **RRHH** | `rrhh@financorp.com` | `NominaSegura2026!` | Gestión de Empleados, Registro de Horas, Liquidación de Nómina, Descarga/Envío de PDF y Reintento de Correos. |
+| **EMPLEADO** | `juan.perez@empresa.com` | `NominaSegura2026!` | Portal de autoservicio: Perfil personal, historial de sus propias liquidaciones y descarga de sus volantes PDF. |
+
+*Nota:* La pantalla de Login incluye botones de acceso demo en 1 clic para facilitar la evaluación.
+
+---
+
+## 3. Arquitectura del Sistema
+
+El sistema implementa una arquitectura modular por capas desacopladas:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       FRONTEND (React + Vite + TS)              │
+│  - Contexto de Autenticación (AuthContext & useAuth)            │
+│  - Vistas: Dashboard, Empleados, Horas, Liquidaciones,          │
+│    Portal del Colaborador, Pista de Auditoría                   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ REST API / JWT Bearer
+┌───────────────────────────────▼─────────────────────────────────┐
+│                     BACKEND (Node.js + Express + TS)            │
+│  - Middlewares: requireAuth, requireRole (RBAC), Rate Limit     │
+│  - Servicios:                                                   │
+│    • AuthService (JWT, bcrypt)                                  │
+│    • LiquidacionService (Cálculos, Snapshot inmutable)          │
+│    • PdfService (Generación PDFKit con membrete)                │
+│    • EmailService (Nodemailer, telemetría y reintentos)         │
+│    • AuditoriaService (Trazabilidad obligatoria)                │
+│    • DashboardService (Agregaciones PostgreSQL en vivo)         │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ Prisma ORM 5 (Transacciones ACID)
+┌───────────────────────────────▼─────────────────────────────────┐
+│                   BASE DE DATOS (PostgreSQL 16)                 │
+│  - Tablas: usuarios, empleados, cargos, horas_trabajadas,       │
+│    liquidaciones, notificaciones, configuracion_empresa,        │
+│    configuraciones_nomina, auditorias                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Reglas del Motor de Liquidación de Nómina
+
+### 4.1. Cargos y Tarifas por Hora
 | Cargo | Rango Valor Hora Permitido |
 | :--- | :--- |
 | **Gerente** | $100.000 a $110.000 COP / hora |
 | **Administrador** | $50.000 a $60.000 COP / hora |
 | **Operario** | $25.000 a $30.000 COP / hora |
 
-*Nota:* El motor utiliza exclusivamente el `valor_hora` registrado para el empleado. No se calcula aleatoriamente.
-
-### 2.2. Registro y Validación de Horas
-- **Periodo Obligatorio:** Formato `YYYY-MM` (ejemplo: `2026-09`, `2026-10`).
-- **Validaciones:**
-  - Numéricas, estrictamente mayores a 0 (`horas > 0`).
-  - No se aceptan números negativos ni texto.
-  - Límite máximo razonable mensual: **300 horas**.
-- **Entidad:** `horas_trabajadas` con índice único compuesto `(empleado_id, periodo)`.
-
-### 2.3. Salario Bruto
+### 4.2. Salario Bruto
 $$\text{Salario Bruto} = \text{Horas Trabajadas} \times \text{Valor Hora}$$
 *Ejemplo:* $176 \text{ horas} \times \$55.000 = \$9.680.000$ COP.
 
-### 2.4. Bono por Hijos
-Escala fija de incentivos familiares evaluada en una única fuente de verdad:
+### 4.3. Bono por Hijos
 - **0 hijos:** $\$0$
 - **1 hijo:** $\$250.000$
 - **2 hijos:** $\$400.000$
 - **3 o más hijos:** $\$600.000$
 
-### 2.5. Deducción de Seguridad Social
+### 4.4. Deducción de Seguridad Social
 $$\text{Seguridad Social} = \text{Salario Bruto} \times \left(\frac{\text{Porcentaje Configurado}}{100}\right)$$
-- **Porcentaje Configurable:** Almacenado en la tabla `configuraciones_nomina` (clave `PORCENTAJE_SEGURIDAD_SOCIAL`).
-- **Base académica inicial:** **4%** (`porcentaje = 4`).
-- Se puede modificar dinámicamente mediante el endpoint `PUT /api/configuracion/seguridad-social`. Las nuevas liquidaciones usarán el nuevo valor, mientras las liquidaciones anteriores conservan intacto su porcentaje original.
+- Porcentaje inicial: **4%**.
+- Configurable dinámicamente desde la interfaz o API (`PUT /api/configuracion/seguridad-social`).
 
-### 2.6. Salario Neto
+### 4.5. Salario Neto Total
 $$\text{Salario Neto} = \text{Salario Bruto} + \text{Bono por Hijos} - \text{Seguridad Social}$$
-*Ejemplo (Caso Completo Juan Pérez, 176h, 2 hijos, 4%):*
+
+*Ejemplo (Caso Completo Juan Pérez, 176h, $55.000/h, 2 hijos, 4%):*
 - Salario Bruto: $\$9.680.000$
-- Bono por Hijos: $+\$400.000$
+- Bono Familiar: $+\$400.000$
 - Seguridad Social: $-\$387.200$
-- **Salario Neto a Pagar:** $\$9.692.800$ COP.
-
-### 2.7. Auditoría e Inmutabilidad Histórica
-La tabla `liquidaciones` almacena una instantánea (*snapshot*) de todos los valores al momento del cálculo:
-- `valor_hora`
-- `numero_hijos`
-- `cargo_nombre`
-- `porcentaje_seguridad_social`
-- `horas_trabajadas`, `salario_bruto`, `bono_hijos`, `valor_seguridad_social`, `salario_neto`, `estado`, `fecha_liquidacion`.
-
-Si en un mes posterior el empleado cambia de cargo, aumenta su tarifa o cambia su número de hijos, la liquidación histórica **no se modifica**.
+- **Neto a Consignar:** $\$9.692.800$ COP.
 
 ---
 
-## 3. Tecnologías Utilizadas
+## 5. Volantes de Pago en PDF y Despacho de Correo
 
-### Backend
-- **Node.js 20+** & **TypeScript 5**
-- **Express 4**: Framework web REST.
-- **Prisma ORM 5**: Gestión de esquemas, migraciones y transacciones ACID en PostgreSQL.
-- **Zod**: Validación estricta y sanitización de datos de entrada.
-- **Vitest & Supertest**: Suite de 38 pruebas unitarias y de integración automáticas.
-- **Helmet, CORS, Morgan**: Seguridad y observabilidad.
+### 5.1. Comprobante Oficial en PDF
+- **Identificador Único:** `NOM-YYYY-MM-XXXXXX` (ejemplo: `NOM-2026-10-000001`).
+- **Diseño Corporativo:** Membrete con NIT, razón social y datos institucionales configurables.
+- **Detalle:** Tabla de ingresos devengados, deducciones de ley y neto a consignar.
+- **Marca de Anulación:** Si la liquidación es anulada, el PDF incluye una franja roja destacada con el motivo y fecha de invalidación.
+- **Almacenamiento:** Persistido en disco (`backend/storage/pdfs/`).
 
-### Frontend
-- **React 18** & **TypeScript 5**
-- **Vite 5**: Empaquetador y entorno de desarrollo.
-- **Tailwind CSS 3**: Diseño responsivo y modular.
-- **Lucide React**: Iconografía consistente.
-
-### Base de Datos
-- **PostgreSQL 16**: Motor de persistencia relacional con precisión `DECIMAL`.
+### 5.2. Despacho Desacoplado de Correos (SMTP)
+- Al confirmarse la liquidación, se despacha automáticamente el volante adjunto al correo del colaborador.
+- Cada intento se registra en la tabla `notificaciones` con estado `ENVIADO`, `PENDIENTE` o `ERROR`.
+- **Resiliencia:** Si el servidor SMTP no está disponible o rechaza el envío, la liquidación **permanece 100% válida con estado CALCULADA**, registrando el error en la notificación y permitiendo reintentar el despacho posteriormente.
 
 ---
 
-## 4. Estructura de la Base de Datos (Modelos Prisma)
+## 6. Pista de Auditoría Inmutable
 
-```
-Cargos (1) ──────────< (N) Empleados (1) ──────────< (N) HorasTrabajadas
-                                (1) ──────────< (N) Liquidaciones
+Todas las operaciones críticas son registradas con timestamp, ID de usuario responsable, acción, entidad afectada, descripción y dirección IP:
+- `LOGIN`, `LOGIN_FALLIDO`, `LOGIN_BLOQUEADO`
+- `CREAR_EMPLEADO`, `ACTUALIZAR_EMPLEADO`, `DESACTIVAR_EMPLEADO`
+- `REGISTRAR_HORAS`, `ACTUALIZAR_HORAS`, `ELIMINAR_HORAS`
+- `CREAR_LIQUIDACION`, `ANULAR_LIQUIDACION`
+- `GENERAR_PDF`, `ENVIAR_CORREO`, `REINTENTAR_CORREO`
+- `CONFIG_ACTUALIZADA`
 
-ConfiguracionNomina (Parámetros globales dinámicos)
-```
-
-- **`cargos`**: ID, nombre, valor_hora_minimo, valor_hora_maximo, activo.
-- **`empleados`**: ID, nombre, apellido, documento (unique), correo (unique), cargo_id, valor_hora, numero_hijos, activo.
-- **`horas_trabajadas`**: ID, empleado_id, periodo, horas, unique(empleado_id, periodo).
-- **`liquidaciones`**: ID, empleado_id, periodo, horas_trabajadas, valor_hora, numero_hijos, cargo_nombre, salario_bruto, bono_hijos, porcentaje_seguridad_social, valor_seguridad_social, salario_neto, estado (`PENDIENTE`, `CALCULADA`, `ANULADA`), fecha_liquidacion, unique(empleado_id, periodo).
-- **`configuraciones_nomina`**: ID, clave (unique), valor, descripcion.
+Solo los usuarios con rol **ADMIN** tienen autorización para consultar la bitácora completa (`GET /api/auditoria`).
 
 ---
 
-## 5. Endpoints de la API REST
+## 7. Despliegue y Ejecución Rápida
 
-### Cargos
-- `GET /api/cargos` - Listar cargos con límites salariales
-- `GET /api/cargos/:id` - Consultar cargo por ID
+### 7.1. Opción 1: Despliegue con Docker Compose (Recomendado)
 
-### Empleados
-- `GET /api/empleados` - Listar empleados (búsqueda y filtros)
-- `GET /api/empleados/:id` - Consultar empleado por ID
-- `POST /api/empleados` - Crear empleado (valida rango y duplicados)
-- `PUT /api/empleados/:id` - Actualizar empleado
-- `DELETE /api/empleados/:id` - Desactivar empleado (soft delete)
-
-### Horas Trabajadas (Parte 2)
-- `GET /api/horas` - Consultar registros de horas (filtros: `?empleadoId=1&periodo=2026-09`)
-- `GET /api/horas/:id` - Consultar registro específico de horas
-- `POST /api/horas` - Registrar horas (`empleadoId`, `periodo`, `horas`)
-- `PUT /api/horas/:id` - Actualizar registro de horas
-- `DELETE /api/horas/:id` - Eliminar registro de horas
-
-### Liquidación de Nómina (Parte 2)
-- `POST /api/liquidaciones/calcular` - Previsualizar cálculo financiero sin guardar
-- `POST /api/liquidaciones` - Confirmar y guardar liquidación (transaccional)
-- `GET /api/liquidaciones` - Listar historial (filtros: `?empleadoId=1&periodo=2026-09&estado=CALCULADA`)
-- `GET /api/liquidaciones/:id` - Consultar detalle inmutable y auditoría
-- `PATCH /api/liquidaciones/:id/anular` - Anular una liquidación
-
-### Configuración (Parte 2)
-- `GET /api/configuracion/seguridad-social` - Consultar porcentaje actual
-- `PUT /api/configuracion/seguridad-social` - Actualizar porcentaje global (`{ "porcentaje": 4 }`)
-
----
-
-## 6. Cómo Ejecutar el Proyecto
-
-### Paso 1: Levantar la Base de Datos PostgreSQL
-Si utiliza Docker:
+1. Clonar el repositorio y configurar variables de entorno:
 ```bash
-docker-compose up -d postgres
+cp .env.example .env
 ```
-O verifique que PostgreSQL esté corriendo en el puerto `5432` con la base de datos `nomina_db`.
 
-### Paso 2: Configurar y Ejecutar el Backend
+2. Construir y levantar todos los contenedores (PostgreSQL, Backend, Frontend):
+```bash
+docker-compose up -d --build
+```
+
+3. Aplicar migraciones y cargar datos semilla:
+```bash
+docker-compose exec backend npx prisma migrate deploy
+docker-compose exec backend npm run db:seed
+```
+
+4. Abrir la aplicación en el navegador:
+- **Frontend:** [http://localhost:5173](http://localhost:5173)
+- **Backend API:** [http://localhost:4000](http://localhost:4000)
+
+---
+
+### 7.2. Opción 2: Ejecución Local en Desarrollo
+
+#### Requisitos Previos:
+- Node.js 20+
+- PostgreSQL 16 corriendo en `localhost:5432` con usuario `nomina_user` o equivalente.
+
+#### 1. Configurar Backend:
 ```bash
 cd backend
+cp .env.example .env
 npm install
-npx prisma migrate dev
-npm run prisma:seed
+npx prisma migrate deploy
+npm run db:seed
 npm run dev
 ```
-El servidor backend se iniciará en `http://localhost:4000`.
 
-### Paso 3: Configurar y Ejecutar el Frontend
+#### 2. Configurar Frontend:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-La aplicación web estará disponible en `http://localhost:5173`.
+
+Acceder en `http://localhost:5173`.
 
 ---
 
-## 7. Cómo Ejecutar las Pruebas Automatizadas
+## 8. Verificación de Calidad y Pruebas Automáticas
 
-El backend cuenta con una suite completa de pruebas unitarias y de integración en Vitest que cubren el 100% de los requerimientos de la Parte 1 y Parte 2:
+El proyecto cuenta con una batería completa de **60 pruebas automatizadas** que validan la Parte 1, Parte 2 y Parte 3 sin regresiones:
 
 ```bash
 cd backend
 npm test
 ```
 
-### Pruebas Obligatorias Verificadas:
-- [x] **PRUEBA 1:** 0 hijos $\rightarrow$ Bono = $\$0$
-- [x] **PRUEBA 2:** 1 hijo $\rightarrow$ Bono = $\$250.000$
-- [x] **PRUEBA 3:** 2 hijos $\rightarrow$ Bono = $\$400.000$
-- [x] **PRUEBA 4:** 3 hijos $\rightarrow$ Bono = $\$600.000$
-- [x] **PRUEBA 5:** 5 hijos $\rightarrow$ Bono = $\$600.000$
-- [x] **PRUEBA 6:** 176 horas a $\$55.000$/hora $\rightarrow$ Salario Bruto = $\$9.680.000$
-- [x] **PRUEBA 7:** Tarifa variable $\rightarrow$ Utiliza el valor real almacenado del empleado.
-- [x] **PRUEBA 8:** Horas negativas ($-10$) $\rightarrow$ Rechazo con `400 Bad Request`.
-- [x] **PRUEBA 9:** Horas superiores al límite ($301$ horas) $\rightarrow$ Rechazo con `400 Bad Request`.
-- [x] **PRUEBA 10:** Liquidación duplicada en el mismo periodo $\rightarrow$ Rechazo con `409 Conflict` ("El empleado ya tiene una liquidación para este periodo.").
-- [x] **PRUEBA 11:** Empleado inexistente $\rightarrow$ `404 Not Found`.
-- [x] **PRUEBA 12:** Empleado inactivo $\rightarrow$ Impide liquidación con `400 Bad Request`.
-- [x] **PRUEBA 13:** Cambio posterior de tarifa o hijos en el empleado $\rightarrow$ La liquidación histórica permanece idéntica.
-- [x] **PRUEBA 14:** Modificación del porcentaje de seguridad social $\rightarrow$ Aplica a nuevas liquidaciones y preserva las pasadas.
-- [x] **PRUEBA SEGURIDAD:** Intento de inyección de `salarioNeto` malicioso desde el cliente $\rightarrow$ Backend ignora y recalcula.
-- [x] **CRUD HORAS:** Validaciones de formato `YYYY-MM`, creación, consulta, edición y eliminación.
-
-**Total:** 38 pruebas automatizadas pasando exitosamente.
+### Resumen de la Suite de Pruebas:
+- **`tests/api.test.ts` (16 pruebas):** Validaciones de CRUD de empleados, rangos salariales por cargo, soft-delete y unicidad.
+- **`tests/liquidacion.test.ts` (22 pruebas):** Cálculos de bonos por hijos (0, 1, 2, 3+), horas trabajadas (validaciones, límites 1-300h), caso completo Juan Pérez, inmutabilidad histórica y protección contra valores manipulados en frontend.
+- **`tests/part3.test.ts` (22 pruebas):**
+  - Autenticación segura (credenciales inválidas, anti-enumeración, token expirado/adulterado).
+  - Control de Acceso RBAC (bloqueo a Empleado para ver otros datos o crear liquidaciones, bloqueo a RRHH para auditoría).
+  - Creación de liquidación con comprobante `NOM-YYYY-MM-XXXXXX` y generación física de PDF en disco.
+  - Descarga de PDF y telemetría de correo con reintentos.
+  - Portal del colaborador con privacidad estricta.
+  - Dashboard con métricas agregadas reales de PostgreSQL.
+  - Anulación controlada con motivo y fecha.
+  - Trazabilidad y auditoría inmutable.
+  - Gestión institucional de la empresa.
 
 ---
 
-## 8. Cómo Probar una Liquidación Manualmente
+## 9. Resumen de Endpoints Principales de la API
 
-### Opción A: A través de la Interfaz Web (Frontend)
-1. Abra el navegador en `http://localhost:5173`.
-2. En la barra superior, seleccione la pestaña **"Horas Trabajadas"**.
-3. Haga clic en **"Registrar Horas"**, elija a `Juan Pérez`, periodo `2026-09` y digite `176` horas. Guarde el registro.
-4. Vaya a la pestaña **"Liquidación de Nómina"** $\rightarrow$ **"Liquidar Nómina"**.
-5. Seleccione a `Juan Pérez`, periodo `2026-09`. Haga clic en **"Cargar Horas"** (aparecerán automáticamente las 176 horas).
-6. Presione **"Calcular Liquidación"**: Verá la previsualización completa:
-   - Salario Bruto: $\$9.680.000$
-   - Bono por Hijos: $\$400.000$
-   - Seguridad Social ($4\%$): $\$387.200$
-   - Salario Neto: $\$9.692.800$
-7. Haga clic en **"Confirmar Liquidación"**: Se guardará la liquidación y se abrirá el **Comprobante de Auditoría**.
-8. En la pestaña **"Historial de Liquidaciones"**, podrá consultar el registro guardado, filtrar por periodo o empleado, y ver el comprobante en cualquier momento.
-
-### Opción B: A través de cURL / API REST
-```bash
-# 1. Previsualizar cálculo
-curl -X POST http://localhost:4000/api/liquidaciones/calcular \
-  -H "Content-Type: application/json" \
-  -d '{"empleadoId": 1, "periodo": "2026-09", "horasTrabajadas": 176}'
-
-# 2. Confirmar liquidación
-curl -X POST http://localhost:4000/api/liquidaciones \
-  -H "Content-Type: application/json" \
-  -d '{"empleadoId": 1, "periodo": "2026-09", "horasTrabajadas": 176}'
-```
+| Método | Endpoint | Roles Permitidos | Descripción |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/login` | Público | Autenticación con correo y contraseña. Retorna JWT. |
+| `POST` | `/api/auth/logout` | Público | Cierre de sesión. |
+| `GET` | `/api/auth/me` | Todos | Perfil del usuario autenticado. |
+| `GET` | `/api/dashboard/resumen` | ADMIN, RRHH | Métricas consolidadas en tiempo real. |
+| `GET` | `/api/empleados` | ADMIN, RRHH | Listar empleados con filtros. |
+| `POST` | `/api/empleados` | ADMIN, RRHH | Crear nuevo empleado. |
+| `POST` | `/api/horas` | ADMIN, RRHH | Registrar horas trabajadas. |
+| `POST` | `/api/liquidaciones/calcular`| ADMIN, RRHH | Previsualización de liquidación sin persistir. |
+| `POST` | `/api/liquidaciones` | ADMIN, RRHH | Liquidar nómina definitiva, genera PDF y envía correo. |
+| `GET` | `/api/liquidaciones/:id/pdf` | Todos (privado) | Descargar comprobante oficial en PDF. |
+| `POST` | `/api/liquidaciones/:id/enviar`| ADMIN, RRHH | Reenviar comprobante por correo electrónico. |
+| `POST` | `/api/liquidaciones/:id/anular`| ADMIN, RRHH | Anular liquidación con justificación. |
+| `GET` | `/api/empleado/perfil` | EMPLEADO | Perfil del colaborador autenticado. |
+| `GET` | `/api/empleado/liquidaciones` | EMPLEADO | Historial exclusivo de sus liquidaciones. |
+| `GET` | `/api/auditoria` | ADMIN | Consulta de la pista de auditoría inmutable. |
+| `GET` | `/api/configuracion/empresa` | Todos | Datos institucionales de la empresa. |
+| `PUT` | `/api/configuracion/empresa` | ADMIN | Actualizar datos corporativos de la empresa. |
+| `PUT` | `/api/configuracion/seguridad-social` | ADMIN | Actualizar porcentaje de seguridad social. |
 
 ---
 
-## 9. Alcance Delimitado: Parte 2 vs. Parte 3
+## 10. Conclusión y Entrega
 
-### Implementado en esta etapa (Parte 2):
-- [x] Modelo relacional e índices compuestos para `horas_trabajadas` y `liquidaciones`.
-- [x] Tabla y servicio de configuración dinámica de seguridad social.
-- [x] Fórmulas matemáticas de salario bruto, bono por hijos escalonado, seguridad social y salario neto.
-- [x] Endpoints CRUD completos para Horas Trabajadas y Liquidaciones.
-- [x] Flujo de previsualización previa a la confirmación en Frontend y Backend.
-- [x] Protección estricta contra liquidaciones duplicadas (409 Conflict).
-- [x] Inmutabilidad histórica de auditoría (snapshot de parámetros).
-- [x] Pestañas de navegación en React (Gestión de Empleados, Horas Trabajadas, Liquidación de Nómina).
-- [x] 38 pruebas unitarias y de integración automatizadas.
-
-### Reservado para la Parte 3 (No implementado en esta fase):
-- Generación de comprobantes y volantes de pago en PDF.
-- Envío automático de comprobantes por correo electrónico (SMTP / Nodemailer).
-- Notificaciones push o al usuario.
-- Dashboard analítico financiero avanzado con gráficos y métricas acumuladas.
-- Autenticación mediante tokens JWT y control de acceso basado en roles (RBAC).
-- Reportes contables avanzados.
+La solución desarrollada cumple rigurosamente con los 16 objetivos fijados para la Parte 3, integrando armónicamente las funcionalidades desarrolladas en las etapas anteriores y garantizando la robustez técnica, matemática y de seguridad requerida en el sector financiero.

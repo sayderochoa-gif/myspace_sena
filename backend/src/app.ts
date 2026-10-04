@@ -4,11 +4,16 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/environment';
 import { errorHandler } from './middlewares/errorHandler';
+import authRoutes from './routes/auth.routes';
 import cargoRoutes from './routes/cargo.routes';
 import empleadoRoutes from './routes/empleado.routes';
 import horasRoutes from './routes/horas.routes';
 import liquidacionRoutes from './routes/liquidacion.routes';
 import configuracionRoutes from './routes/configuracion.routes';
+import dashboardRoutes from './routes/dashboard.routes';
+import auditoriaRoutes from './routes/auditoria.routes';
+import notificacionRoutes from './routes/notificacion.routes';
+import empleadoPortalRoutes from './routes/empleadoPortal.routes';
 import { sendSuccess } from './utils/response';
 import { NotFoundError } from './utils/errors';
 
@@ -28,7 +33,7 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-require-auth'],
   })
 );
 
@@ -54,41 +59,35 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // Rutas de la API
+app.use('/api/auth', authRoutes);
 app.use('/api/cargos', cargoRoutes);
 app.use('/api/empleados', empleadoRoutes);
 app.use('/api/horas', horasRoutes);
 app.use('/api/liquidaciones', liquidacionRoutes);
 app.use('/api/configuracion', configuracionRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/auditoria', auditoriaRoutes);
+app.use('/api/notificaciones', notificacionRoutes);
+app.use('/api/empleado', empleadoPortalRoutes);
 
 // Ruta raíz con metadatos de la API
 app.get('/', (_req: Request, res: Response) => {
   res.json({
     nombre: 'Sistema de Automatización de Nómina - API',
-    version: '2.0.0 (Parte 2 - Motor de Liquidación)',
+    version: '3.0.0 (Parte 3 - Solución Integral de Automatización)',
     estado: 'Activo',
-    endpoints: {
-      health: 'GET /api/health',
-      cargos: 'GET /api/cargos',
-      cargoById: 'GET /api/cargos/:id',
-      empleados: 'GET /api/empleados',
-      empleadoById: 'GET /api/empleados/:id',
-      crearEmpleado: 'POST /api/empleados',
-      actualizarEmpleado: 'PUT /api/empleados/:id',
-      desactivarEmpleado: 'DELETE /api/empleados/:id',
-      horas: 'GET /api/horas',
-      crearHoras: 'POST /api/horas',
-      horasById: 'GET /api/horas/:id',
-      actualizarHoras: 'PUT /api/horas/:id',
-      eliminarHoras: 'DELETE /api/horas/:id',
-      calcularLiquidacion: 'POST /api/liquidaciones/calcular',
-      liquidaciones: 'GET /api/liquidaciones',
-      crearLiquidacion: 'POST /api/liquidaciones',
-      liquidacionById: 'GET /api/liquidaciones/:id',
-      configuracionSeguridadSocial: 'GET /api/configuracion/seguridad-social',
-      actualizarConfiguracionSeguridadSocial: 'PUT /api/configuracion/seguridad-social',
-    },
+    modulos: [
+      'Autenticación & Autorización RBAC',
+      'Dashboard & Métricas en Tiempo Real',
+      'Generación de Volantes PDF',
+      'Despacho y Reintento de Correos SMTP',
+      'Trazabilidad & Auditoría Inmutable',
+      'Portal del Empleado',
+      'Motor de Liquidación & Horas',
+    ],
   });
 });
+
 
 // Manejo de rutas inexistentes (404)
 app.use((req: Request, _res: Response, next: NextFunction) => {

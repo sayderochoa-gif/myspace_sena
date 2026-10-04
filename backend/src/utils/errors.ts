@@ -40,3 +40,17 @@ export class BadRequestError extends AppError {
     this.name = 'BadRequestError';
   }
 }
+
+export class UnauthorizedError extends AppError {
+  constructor(message: string = 'No autorizado', errorCode: string = 'UNAUTHORIZED') {
+    super(message, 401, errorCode);
+    this.name = 'UnauthorizedError';
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message: string = 'Acceso denegado', errorCode: string = 'FORBIDDEN') {
+    super(message, 403, errorCode);
+    this.name = 'ForbiddenError';
+  }
+}

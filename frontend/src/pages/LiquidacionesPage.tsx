@@ -13,20 +13,26 @@ import {
   DollarSign,
   User,
   Ban,
+  Download,
+  Mail,
+  Send,
+  Building2,
 } from 'lucide-react';
 import {
   Liquidacion,
   Empleado,
   PrevisualizacionLiquidacion,
   CreateLiquidacionPayload,
+  ConfiguracionEmpresa,
 } from '../types';
 import { liquidacionService } from '../services/liquidacionService';
 import { empleadoService } from '../services/empleadoService';
 import { horasService } from '../services/horasService';
+import { empresaService } from '../services/empresaService';
 import { LiquidacionDetailModal } from '../components/LiquidacionDetailModal';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AlertBanner } from '../components/AlertBanner';
-import { formatCOP, formatDate, formatPeriodo } from '../utils/formatters';
+import { formatCOP, formatPeriodo } from '../utils/formatters';
+
 
 export const LiquidacionesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'liquidar' | 'historial' | 'configuracion'>('liquidar');
@@ -43,9 +49,10 @@ export const LiquidacionesPage: React.FC = () => {
   const [horasTrabajadas, setHorasTrabajadas] = useState<string>('176');
   const [preview, setPreview] = useState<PrevisualizacionLiquidacion | null>(null);
 
-  // Configuración de Seguridad Social
+  // Configuración de Seguridad Social y Empresa
   const [porcentajeConfig, setPorcentajeConfig] = useState<number>(4);
   const [nuevoPorcentajeInput, setNuevoPorcentajeInput] = useState<string>('4');
+  const [empresa, setEmpresa] = useState<ConfiguracionEmpresa | null>(null);
 
   // Filtros de Historial
   const [filterEmpleadoId, setFilterEmpleadoId] = useState<number>(0);
@@ -61,7 +68,9 @@ export const LiquidacionesPage: React.FC = () => {
     isOpen: false,
     id: null,
   });
+  const [motivoAnulacion, setMotivoAnulacion] = useState<string>('Ajuste o corrección de liquidación');
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
 
   // Inicializar periodo por defecto al mes actual (YYYY-MM)
   useEffect(() => {
@@ -73,9 +82,10 @@ export const LiquidacionesPage: React.FC = () => {
   // Cargar Empleados y Configuración
   const loadInitialData = useCallback(async () => {
     try {
-      const [emps, config] = await Promise.all([
+      const [emps, config, empConfig] = await Promise.all([
         empleadoService.getEmpleados({ activo: 'all' }),
         liquidacionService.getConfiguracionSeguridadSocial(),
+        empresaService.getEmpresa(),
       ]);
       setEmpleados(emps);
       if (emps.length > 0 && selectedEmpleadoId === 0) {
@@ -84,6 +94,7 @@ export const LiquidacionesPage: React.FC = () => {
       }
       setPorcentajeConfig(config.porcentajeSeguridadSocial);
       setNuevoPorcentajeInput(config.porcentajeSeguridadSocial.toString());
+      setEmpresa(empConfig);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al cargar datos iniciales';
       setAlert({ type: 'error', message: msg });
@@ -118,8 +129,59 @@ export const LiquidacionesPage: React.FC = () => {
     }
   }, [activeTab, fetchHistorial]);
 
+  // Descargar Comprobante en PDF
+  const handleDownloadPdf = async (liq: Liquidacion) => {
+    try {
+      await liquidacionService.descargarPdf(
+        liq.id,
+        liq.numeroComprobante || `${liq.id}`
+      );
+      setAlert({
+        type: 'success',
+        message: `Comprobante ${liq.numeroComprobante || liq.id} descargado exitosamente`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al descargar PDF';
+      setAlert({ type: 'error', message: msg });
+    }
+  };
+
+  // Reenviar Comprobante por Correo
+  const handleResendEmail = async (liq: Liquidacion) => {
+    try {
+      const res = await liquidacionService.enviarCorreo(liq.id);
+      if (res.exito) {
+        setAlert({ type: 'success', message: 'Volante despachado exitosamente por correo electrónico' });
+      } else {
+        setAlert({ type: 'error', message: res.mensaje });
+      }
+      fetchHistorial();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error despachando correo';
+      setAlert({ type: 'error', message: msg });
+    }
+  };
+
+  // Guardar Datos Institucionales de la Empresa
+  const handleSaveEmpresa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empresa) return;
+    try {
+      const updated = await empresaService.updateEmpresa(empresa);
+      setEmpresa(updated);
+      setAlert({
+        type: 'success',
+        message: 'Información institucional de la empresa actualizada correctamente',
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al actualizar información de la empresa';
+      setAlert({ type: 'error', message: msg });
+    }
+  };
+
   // Autocargar horas registradas para el empleado y periodo seleccionado
   const handleAutoCargarHoras = async () => {
+
     if (!selectedEmpleadoId || !periodo) return;
     try {
       const horasRegs = await horasService.getAll({
@@ -679,22 +741,23 @@ export const LiquidacionesPage: React.FC = () => {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-xs">
                   <tr>
-                    <th className="px-5 py-4">Empleado</th>
-                    <th className="px-5 py-4">Periodo</th>
-                    <th className="px-5 py-4">Horas</th>
-                    <th className="px-5 py-4">Salario Bruto</th>
-                    <th className="px-5 py-4">Bono Hijos</th>
-                    <th className="px-5 py-4">Seg. Social</th>
-                    <th className="px-5 py-4">Salario Neto</th>
-                    <th className="px-5 py-4">Estado</th>
-                    <th className="px-5 py-4">Fecha</th>
-                    <th className="px-5 py-4 text-right">Acciones</th>
+                    <th className="px-4 py-4">Comprobante</th>
+                    <th className="px-4 py-4">Empleado</th>
+                    <th className="px-4 py-4">Periodo</th>
+                    <th className="px-4 py-4">Horas</th>
+                    <th className="px-4 py-4">Salario Bruto</th>
+                    <th className="px-4 py-4">Bono Hijos</th>
+                    <th className="px-4 py-4">Seg. Social</th>
+                    <th className="px-4 py-4">Salario Neto</th>
+                    <th className="px-4 py-4">Estado</th>
+                    <th className="px-4 py-4">Correo</th>
+                    <th className="px-4 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {loading && liquidaciones.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
+                      <td colSpan={11} className="px-6 py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center space-y-2">
                           <RefreshCw className="w-6 h-6 animate-spin text-emerald-500" />
                           <p>Cargando historial de liquidaciones...</p>
@@ -703,7 +766,7 @@ export const LiquidacionesPage: React.FC = () => {
                     </tr>
                   ) : liquidaciones.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
+                      <td colSpan={11} className="px-6 py-12 text-center text-slate-500">
                         <div className="flex flex-col items-center space-y-2">
                           <FileText className="w-8 h-8 text-slate-300" />
                           <p className="font-medium text-slate-700">No hay liquidaciones registradas</p>
@@ -714,78 +777,120 @@ export const LiquidacionesPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    liquidaciones.map((liq) => (
-                      <tr key={liq.id} className="hover:bg-slate-50/80 transition">
-                        <td className="px-5 py-4">
-                          <div className="font-semibold text-slate-900">
-                            {liq.empleado
-                              ? `${liq.empleado.nombre} ${liq.empleado.apellido}`
-                              : `ID: ${liq.empleadoId}`}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {liq.cargoNombre} • Doc: {liq.empleado?.documento || '-'}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <span className="font-medium text-slate-700">
-                            {formatPeriodo(liq.periodo)}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 font-semibold text-slate-700">
-                          {liq.horasTrabajadas}h
-                        </td>
-                        <td className="px-5 py-4 font-medium text-slate-800">
-                          {formatCOP(liq.salarioBruto)}
-                        </td>
-                        <td className="px-5 py-4 text-emerald-600 font-medium">
-                          {formatCOP(liq.bonoHijos)}
-                        </td>
-                        <td className="px-5 py-4 text-rose-600 font-medium">
-                          {formatCOP(liq.valorSeguridadSocial)}
-                        </td>
-                        <td className="px-5 py-4 font-bold text-slate-900">
-                          {formatCOP(liq.salarioNeto)}
-                        </td>
-                        <td className="px-5 py-4">
-                          {liq.estado === 'CALCULADA' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              CALCULADA
+                    liquidaciones.map((liq) => {
+                      const ultimaNotif = liq.notificaciones && liq.notificaciones.length > 0 ? liq.notificaciones[0] : null;
+                      const compId = liq.numeroComprobante || `NOM-${liq.periodo}-${String(liq.id).padStart(6, '0')}`;
+
+                      return (
+                        <tr key={liq.id} className="hover:bg-slate-50/80 transition">
+                          <td className="px-4 py-3.5 font-mono text-xs font-bold text-blue-600 whitespace-nowrap">
+                            {compId}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="font-semibold text-slate-900">
+                              {liq.empleado
+                                ? `${liq.empleado.nombre} ${liq.empleado.apellido}`
+                                : `ID: ${liq.empleadoId}`}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {liq.cargoNombre} • Doc: {liq.empleado?.documento || '-'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <span className="font-medium text-slate-700">
+                              {formatPeriodo(liq.periodo)}
                             </span>
-                          )}
-                          {liq.estado === 'ANULADA' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
-                              ANULADA
-                            </span>
-                          )}
-                          {liq.estado === 'PENDIENTE' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
-                              PENDIENTE
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
-                          {formatDate(liq.fechaLiquidacion)}
-                        </td>
-                        <td className="px-5 py-4 text-right space-x-1.5 whitespace-nowrap">
-                          <button
-                            onClick={() => setDetailModal({ isOpen: true, data: liq })}
-                            className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
-                            title="Ver Comprobante y Detalle"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {liq.estado !== 'ANULADA' && (
+                          </td>
+                          <td className="px-4 py-3.5 font-semibold text-slate-700">
+                            {liq.horasTrabajadas}h
+                          </td>
+                          <td className="px-4 py-3.5 font-medium text-slate-800">
+                            {formatCOP(liq.salarioBruto)}
+                          </td>
+                          <td className="px-4 py-3.5 text-emerald-600 font-medium">
+                            {formatCOP(liq.bonoHijos)}
+                          </td>
+                          <td className="px-4 py-3.5 text-rose-600 font-medium">
+                            {formatCOP(liq.valorSeguridadSocial)}
+                          </td>
+                          <td className="px-4 py-3.5 font-bold text-slate-900 font-mono text-sm">
+                            {formatCOP(liq.salarioNeto)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {liq.estado === 'CALCULADA' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                CALCULADA
+                              </span>
+                            )}
+                            {liq.estado === 'ANULADA' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
+                                ANULADA
+                              </span>
+                            )}
+                            {liq.estado === 'PENDIENTE' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                PENDIENTE
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {ultimaNotif ? (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                  ultimaNotif.estado === 'ENVIADO'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : ultimaNotif.estado === 'ERROR'
+                                    ? 'bg-red-100 text-red-800 border border-red-300'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3" />
+                                {ultimaNotif.estado}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Sin despacho</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 text-right space-x-1 whitespace-nowrap">
                             <button
-                              onClick={() => setAnularConfirm({ isOpen: true, id: liq.id })}
-                              className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                              title="Anular Liquidación"
+                              onClick={() => setDetailModal({ isOpen: true, data: liq })}
+                              className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                              title="Ver Comprobante y Detalle"
                             >
-                              <Ban className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+
+                            <button
+                              onClick={() => handleDownloadPdf(liq)}
+                              className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              title="Descargar Comprobante PDF"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+
+                            {liq.estado !== 'ANULADA' && (
+                              <button
+                                onClick={() => handleResendEmail(liq)}
+                                className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                                title="Reenviar comprobante por correo electrónico"
+                              >
+                                <Send className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {liq.estado !== 'ANULADA' && (
+                              <button
+                                onClick={() => setAnularConfirm({ isOpen: true, id: liq.id })}
+                                className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                title="Anular Liquidación"
+                              >
+                                <Ban className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -794,61 +899,155 @@ export const LiquidacionesPage: React.FC = () => {
         </div>
       )}
 
+
       {/* ============================================================== */}
-      {/* TAB 3: CONFIGURACIÓN DINÁMICA DE SEGURIDAD SOCIAL */}
+      {/* TAB 3: CONFIGURACIÓN DINÁMICA DE SEGURIDAD SOCIAL Y EMPRESA */}
       {/* ============================================================== */}
       {activeTab === 'configuracion' && (
-        <div className="max-w-2xl bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-              <Settings className="w-5 h-5 text-emerald-600" />
-              <span>Configuración de Parámetros de Nómina</span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              Ajuste dinámico de porcentajes globales para las liquidaciones del sistema.
-            </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Seguridad Social */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                <Settings className="w-5 h-5 text-emerald-600" />
+                <span>Parámetros de Liquidación</span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Ajuste dinámico de porcentajes globales para las liquidaciones del sistema.
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdatePorcentaje} className="space-y-4">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Porcentaje de Deducción por Seguridad Social (%)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="100"
+                    step="0.1"
+                    value={nuevoPorcentajeInput}
+                    onChange={(e) => setNuevoPorcentajeInput(e.target.value)}
+                    className="w-32 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white text-slate-800 font-bold"
+                  />
+                  <span className="text-slate-600 font-semibold">%</span>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow transition cursor-pointer"
+                  >
+                    Guardar Porcentaje
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Valor configurado actualmente: <strong>{porcentajeConfig}%</strong>.
+                </p>
+              </div>
+
+              <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 space-y-1.5">
+                <p className="font-bold flex items-center space-x-1.5">
+                  <ShieldCheck className="w-4 h-4 text-sky-600" />
+                  <span>Regla de Preservación Histórica:</span>
+                </p>
+                <p>
+                  Al modificar este porcentaje, únicamente las <strong>nuevas liquidaciones</strong>{' '}
+                  creadas a partir de este momento utilizarán el nuevo valor. Todas las liquidaciones
+                  anteriores conservarán inalterado el porcentaje con el que fueron calculadas originalmente.
+                </p>
+              </div>
+            </form>
           </div>
 
-          <form onSubmit={handleUpdatePorcentaje} className="space-y-4">
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Porcentaje de Deducción por Seguridad Social (%)
-              </label>
-              <div className="flex items-center space-x-3">
-                <input
-                  type="number"
-                  min="0.1"
-                  max="100"
-                  step="0.1"
-                  value={nuevoPorcentajeInput}
-                  onChange={(e) => setNuevoPorcentajeInput(e.target.value)}
-                  className="w-32 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white text-slate-800 font-bold"
-                />
-                <span className="text-slate-600 font-semibold">%</span>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow transition"
-                >
-                  Guardar Porcentaje
-                </button>
-              </div>
+          {/* Información Institucional de la Empresa */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <span>Membrete e Información de la Empresa</span>
+              </h2>
               <p className="text-xs text-slate-500">
-                Valor configurado actualmente: <strong>{porcentajeConfig}%</strong>.
+                Datos corporativos que figuran en el volante de pago en PDF y comunicaciones por correo.
               </p>
             </div>
 
-            <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 space-y-1.5">
-              <p className="font-bold flex items-center space-x-1.5">
-                <ShieldCheck className="w-4 h-4 text-sky-600" />
-                <span>Regla de Preservación Histórica:</span>
-              </p>
-              <p>
-                Al modificar este porcentaje, únicamente las <strong>nuevas liquidaciones</strong>{' '}
-                creadas a partir de este momento utilizarán el nuevo valor. Todas las liquidaciones
-                anteriores conservarán inalterado el porcentaje con el que fueron calculadas originalmente.
-              </p>
-            </div>
-          </form>
+            {empresa && (
+              <form onSubmit={handleSaveEmpresa} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Razón Social</label>
+                    <input
+                      type="text"
+                      value={empresa.nombre}
+                      onChange={(e) => setEmpresa({ ...empresa, nombre: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 font-medium"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">NIT</label>
+                    <input
+                      type="text"
+                      value={empresa.nit}
+                      onChange={(e) => setEmpresa({ ...empresa, nit: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 font-medium"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Dirección Corporativa</label>
+                  <input
+                    type="text"
+                    value={empresa.direccion}
+                    onChange={(e) => setEmpresa({ ...empresa, direccion: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Teléfono</label>
+                    <input
+                      type="text"
+                      value={empresa.telefono}
+                      onChange={(e) => setEmpresa({ ...empresa, telefono: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Correo Nómina</label>
+                    <input
+                      type="email"
+                      value={empresa.correo}
+                      onChange={(e) => setEmpresa({ ...empresa, correo: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">Sitio Web</label>
+                    <input
+                      type="text"
+                      value={empresa.sitioWeb}
+                      onChange={(e) => setEmpresa({ ...empresa, sitioWeb: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition cursor-pointer"
+                  >
+                    Guardar Datos Corporativos
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 
@@ -857,18 +1056,55 @@ export const LiquidacionesPage: React.FC = () => {
         isOpen={detailModal.isOpen}
         onClose={() => setDetailModal({ isOpen: false, data: null })}
         liquidacion={detailModal.data}
+        onLiquidacionUpdated={fetchHistorial}
       />
 
-      {/* Modal de Anulación */}
-      <ConfirmDialog
-        isOpen={anularConfirm.isOpen}
-        title="Anular Liquidación de Nómina"
-        message="¿Está seguro de que desea anular esta liquidación? El estado pasará a ANULADA en el historial."
-        confirmLabel="Sí, Anular"
-        cancelLabel="Cancelar"
-        onConfirm={handleAnularLiquidacion}
-        onCancel={() => setAnularConfirm({ isOpen: false, id: null })}
-      />
+      {/* Modal de Anulación con Motivo */}
+      {anularConfirm.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-white shadow-2xl">
+            <h3 className="text-lg font-bold flex items-center gap-2 text-red-400">
+              <Ban className="w-5 h-5" />
+              Anular Liquidación de Nómina
+            </h3>
+            <p className="text-xs text-slate-400 mt-2">
+              Esta acción marcará el comprobante como <strong>ANULADA</strong> e incluirá una marca de anulación en el comprobante PDF oficial.
+            </p>
+
+            <div className="mt-4">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Motivo / Justificación de la Anulación: <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                value={motivoAnulacion}
+                onChange={(e) => setMotivoAnulacion(e.target.value)}
+                placeholder="Ej: Corrección en el registro de horas o reclamo salarial del colaborador..."
+                rows={3}
+                required
+                className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setAnularConfirm({ isOpen: false, id: null })}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleAnularLiquidacion}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-red-600/30 cursor-pointer"
+              >
+                Confirmar Anulación
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

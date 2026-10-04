@@ -545,9 +545,167 @@ Obtiene el porcentaje actual de descuento para seguridad social.
 ```
 
 ### `PUT /configuracion/seguridad-social`
-Actualiza el porcentaje de seguridad social para futuras liquidaciones.
+Actualiza el porcentaje de seguridad social para futuras liquidaciones (Solo ADMIN).
 ```json
 {
   "porcentaje": 5
 }
 ```
+
+---
+
+## 7. Endpoints de Autenticación & Sesión (Parte 3)
+
+### `POST /auth/login`
+Autenticación de usuario por correo y contraseña. Implementa rate limiting y protección contra ataques de enumeración.
+
+**Body:**
+```json
+{
+  "correo": "admin@financorp.com",
+  "password": "NominaSegura2026!"
+}
+```
+
+**Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Inicio de sesión exitoso",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "usuario": {
+      "id": 1,
+      "nombre": "Administrador Principal",
+      "correo": "admin@financorp.com",
+      "rol": "ADMIN",
+      "empleadoId": null
+    }
+  }
+}
+```
+
+### `POST /auth/logout`
+Cierra la sesión del usuario.
+
+### `GET /auth/me`
+Obtiene el perfil del usuario autenticado a partir del token Bearer. Requiere cabecera `Authorization: Bearer <TOKEN>`.
+
+---
+
+## 8. Endpoints del Dashboard de Métricas
+
+### `GET /dashboard/resumen`
+Métricas consolidadas calculadas 100% en tiempo real desde PostgreSQL (ADMIN y RRHH).
+- **Parámetro opcional:** `?periodo=YYYY-MM` (por defecto mes en curso).
+
+**Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "empleados": { "total": 4, "activos": 3, "inactivos": 1 },
+    "periodoSeleccionado": "2026-10",
+    "liquidaciones": {
+      "totalPeriodo": 3,
+      "calculadas": 3,
+      "anuladas": 0,
+      "pendientes": 0,
+      "totalBruto": 24500000,
+      "totalBonos": 1000000,
+      "totalSeguridadSocial": 980000,
+      "totalNeto": 24520000
+    },
+    "notificaciones": {
+      "total": 3,
+      "enviados": 3,
+      "pendientes": 0,
+      "errores": 0
+    },
+    "ultimasLiquidaciones": [ ... ]
+  }
+}
+```
+
+---
+
+## 9. Endpoints de Comprobantes PDF & Correo Electrónico
+
+### `GET /liquidaciones/:id/pdf`
+Descarga directa del comprobante oficial en formato PDF.
+- Cabecera: `Content-Type: application/pdf`
+- Cabecera: `Content-Disposition: attachment; filename="volante-NOM-YYYY-MM-XXXXXX.pdf"`
+
+### `POST /liquidaciones/:id/enviar`
+Reenvía el comprobante PDF adjunto al correo electrónico registrado del empleado (ADMIN y RRHH).
+
+### `POST /liquidaciones/:id/anular`
+Anula la liquidación registrando el motivo y fecha, regenerando el PDF con marca de agua oficial (ADMIN y RRHH).
+
+**Body:**
+```json
+{
+  "motivo": "Ajuste de horas por incapacidad médica del colaborador"
+}
+```
+
+### `POST /notificaciones/:id/reintentar`
+Reintenta el despacho de un correo electrónico en estado ERROR o PENDIENTE (ADMIN y RRHH).
+
+---
+
+## 10. Portal de Autoservicio del Empleado
+
+Rutas privadas y estrictamente restringidas a los datos del colaborador autenticado (rol EMPLEADO):
+
+### `GET /empleado/perfil`
+Devuelve el perfil del empleado vinculado a la cuenta autenticada.
+
+### `GET /empleado/liquidaciones`
+Lista exclusivamente las liquidaciones correspondientes al empleado autenticado.
+
+### `GET /empleado/liquidaciones/:id/pdf`
+Descarga el comprobante PDF de una liquidación propia (rechaza con 403 Forbidden si el comprobante pertenece a otro empleado).
+
+---
+
+## 11. Pista de Auditoría Inmutable
+
+### `GET /auditoria`
+Consulta la bitácora completa de eventos del sistema (Solo ADMIN).
+- Filtros opcionales: `?usuarioId=1`, `?accion=CREAR_LIQUIDACION`, `?entidad=LIQUIDACION`.
+
+**Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 15,
+      "usuarioId": 1,
+      "accion": "CREAR_LIQUIDACION",
+      "entidad": "LIQUIDACION",
+      "entidadId": 4,
+      "descripcion": "Liquidada nómina para Juan Pérez (2026-10) - Neto: $9.692.800",
+      "ip": "127.0.0.1",
+      "createdAt": "2026-10-04T19:30:00.000Z",
+      "usuario": {
+        "nombre": "Administrador Principal",
+        "correo": "admin@financorp.com",
+        "rol": "ADMIN"
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 12. Configuración Corporativa de la Empresa
+
+### `GET /configuracion/empresa`
+Obtiene los datos institucionales de la entidad financiera (razón social, NIT, dirección, teléfono, correo de nómina y sitio web).
+
+### `PUT /configuracion/empresa`
+Actualiza la información corporativa utilizada en el membrete del PDF y firmas de correo (Solo ADMIN).
+

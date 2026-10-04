@@ -1,4 +1,4 @@
-import { Cargo, Empleado, HorasTrabajadas, Liquidacion, EstadoLiquidacion } from '@prisma/client';
+import { Cargo, Empleado, HorasTrabajadas, Liquidacion, EstadoLiquidacion, Notificacion } from '@prisma/client';
 
 export interface FormattedCargo {
   id: number;
@@ -35,6 +35,17 @@ export interface FormattedHorasTrabajadas {
   updatedAt: string;
 }
 
+export interface FormattedNotificacion {
+  id: number;
+  destinatario: string;
+  asunto: string;
+  estado: string;
+  intentos: number;
+  fechaEnvio?: string | null;
+  fechaUltimoIntento?: string | null;
+  error?: string | null;
+}
+
 export interface FormattedLiquidacion {
   id: number;
   empleadoId: number;
@@ -49,8 +60,13 @@ export interface FormattedLiquidacion {
   valorSeguridadSocial: number;
   salarioNeto: number;
   estado: EstadoLiquidacion;
+  numeroComprobante: string;
+  pdfPath?: string | null;
+  motivoAnulacion?: string | null;
+  fechaAnulacion?: string | null;
   fechaLiquidacion: string;
   empleado?: FormattedEmpleado;
+  notificaciones?: FormattedNotificacion[];
   createdAt: string;
   updatedAt: string;
 }
@@ -101,7 +117,10 @@ export function formatHorasTrabajadas(
 }
 
 export function formatLiquidacion(
-  liq: Liquidacion & { empleado?: (Empleado & { cargo?: Cargo | null }) | null }
+  liq: Liquidacion & {
+    empleado?: (Empleado & { cargo?: Cargo | null }) | null;
+    notificaciones?: Notificacion[];
+  }
 ): FormattedLiquidacion {
   return {
     id: liq.id,
@@ -117,9 +136,56 @@ export function formatLiquidacion(
     valorSeguridadSocial: Number(liq.valorSeguridadSocial),
     salarioNeto: Number(liq.salarioNeto),
     estado: liq.estado,
+    numeroComprobante: liq.numeroComprobante || `NOM-${liq.periodo}-${String(liq.id).padStart(6, '0')}`,
+    pdfPath: liq.pdfPath,
+    motivoAnulacion: liq.motivoAnulacion,
+    fechaAnulacion: liq.fechaAnulacion ? liq.fechaAnulacion.toISOString() : null,
     fechaLiquidacion: liq.fechaLiquidacion.toISOString(),
     empleado: liq.empleado ? formatEmpleado(liq.empleado) : undefined,
+    notificaciones: liq.notificaciones
+      ? liq.notificaciones.map((n) => ({
+          id: n.id,
+          destinatario: n.destinatario,
+          asunto: n.asunto,
+          estado: n.estado,
+          intentos: n.intentos,
+          fechaEnvio: n.fechaEnvio ? n.fechaEnvio.toISOString() : null,
+          fechaUltimoIntento: n.fechaUltimoIntento ? n.fechaUltimoIntento.toISOString() : null,
+          error: n.error,
+        }))
+      : undefined,
     createdAt: liq.createdAt.toISOString(),
     updatedAt: liq.updatedAt.toISOString(),
   };
 }
+
+export function formatCOP(value: number): string {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export function formatPeriodo(periodo: string): string {
+  if (!periodo || !periodo.includes('-')) return periodo;
+  const [year, month] = periodo.split('-');
+  const meses = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
+  const mesIndex = parseInt(month, 10) - 1;
+  const mesNombre = meses[mesIndex] || month;
+  return `${mesNombre} ${year}`;
+}
+
+export function formatDate(dateString: string | Date): string {
+  const d = typeof dateString === 'string' ? new Date(dateString) : dateString;
+  return d.toLocaleDateString('es-CO', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+

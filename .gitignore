@@ -43,3 +43,8 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# Generated PDFs
+backend/storage/pdfs/*.pdf
+!backend/storage/pdfs/.gitkeep
+

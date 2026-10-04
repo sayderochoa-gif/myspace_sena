@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -77,6 +78,8 @@ async function main() {
     },
   ];
 
+  const empleadosMap = new Map<string, number>();
+
   for (const emp of empleadosData) {
     const cargoId = cargosMap.get(emp.cargoNombre);
     if (!cargoId) {
@@ -105,6 +108,7 @@ async function main() {
         activo: emp.activo,
       },
     });
+    empleadosMap.set(upserted.correo, upserted.id);
     console.log(`✓ Empleado registrado: ${upserted.nombre} ${upserted.apellido} (${emp.cargoNombre}, Doc: ${upserted.documento}, Valor Hora: $${upserted.valorHora})`);
   }
 
@@ -119,6 +123,65 @@ async function main() {
     },
   });
   console.log(`✓ Configuración registrada: ${configSeguridadSocial.clave} = ${configSeguridadSocial.valor}%`);
+
+  // 4. Sembrar Configuración de Empresa (Parte 3)
+  const primerConfigEmpresa = await prisma.configuracionEmpresa.findFirst();
+  if (!primerConfigEmpresa) {
+    await prisma.configuracionEmpresa.create({
+      data: {
+        nombre: 'FinanCorp S.A.',
+        nit: '900.123.456-7',
+        direccion: 'Calle 72 # 10-34, Bogotá, Colombia',
+        telefono: '+57 (1) 745-0000',
+        correo: 'nomina@financorp.com',
+        sitioWeb: 'www.financorp.com',
+      },
+    });
+    console.log('✓ Configuración corporativa registrada: FinanCorp S.A.');
+  }
+
+  // 5. Sembrar Usuarios con roles para autenticación (Parte 3)
+  const passwordComunHash = await bcrypt.hash('NominaSegura2026!', 10);
+  const juanEmpleadoId = empleadosMap.get('juan.perez@empresa.com');
+
+  const usuariosData = [
+    {
+      nombre: 'Administrador del Sistema',
+      correo: 'admin@financorp.com',
+      passwordHash: passwordComunHash,
+      rol: 'ADMIN' as const,
+      activo: true,
+    },
+    {
+      nombre: 'Analista de Recursos Humanos',
+      correo: 'rrhh@financorp.com',
+      passwordHash: passwordComunHash,
+      rol: 'RRHH' as const,
+      activo: true,
+    },
+    {
+      nombre: 'Juan Pérez',
+      correo: 'juan.perez@empresa.com',
+      passwordHash: passwordComunHash,
+      rol: 'EMPLEADO' as const,
+      empleadoId: juanEmpleadoId,
+      activo: true,
+    },
+  ];
+
+  for (const usr of usuariosData) {
+    const upsertedUsr = await prisma.usuario.upsert({
+      where: { correo: usr.correo },
+      update: {
+        nombre: usr.nombre,
+        rol: usr.rol,
+        activo: usr.activo,
+        empleadoId: usr.empleadoId,
+      },
+      create: usr,
+    });
+    console.log(`✓ Usuario registrado: ${upsertedUsr.nombre} (${upsertedUsr.correo}, Rol: ${upsertedUsr.rol})`);
+  }
 
   console.log('✅ Seed completado exitosamente.');
 }
