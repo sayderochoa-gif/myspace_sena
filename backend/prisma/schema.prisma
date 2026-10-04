@@ -1,0 +1,41 @@
+// Prisma Schema para Sistema de Automatización de Nómina - Parte 1
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Cargo {
+  id               Int        @id @default(autoincrement())
+  nombre           String     @unique @db.VarChar(100)
+  valorHoraMinimo  Decimal    @map("valor_hora_minimo") @db.Decimal(12, 2)
+  valorHoraMaximo  Decimal    @map("valor_hora_maximo") @db.Decimal(12, 2)
+  activo           Boolean    @default(true)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  empleados        Empleado[]
+
+  @@map("cargos")
+}
+
+model Empleado {
+  id           Int      @id @default(autoincrement())
+  nombre       String   @db.VarChar(100)
+  apellido     String   @db.VarChar(100)
+  documento    String   @unique @db.VarChar(50)
+  correo       String   @unique @db.VarChar(150)
+  cargoId      Int      @map("cargo_id")
+  cargo        Cargo    @relation(fields: [cargoId], references: [id], onDelete: Restrict)
+  valorHora    Decimal  @map("valor_hora") @db.Decimal(12, 2)
+  numeroHijos  Int      @default(0) @map("numero_hijos")
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("empleados")
+}

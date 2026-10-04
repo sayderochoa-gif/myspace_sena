@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Base de Datos PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: nomina_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nomina_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nomina_password_seguro_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-nomina_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - nomina_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nomina_user} -d ${POSTGRES_DB:-nomina_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend Node.js / Express
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nomina_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nomina_user}:${POSTGRES_PASSWORD:-nomina_password_seguro_2026}@postgres:5432/${POSTGRES_DB:-nomina_db}?schema=public
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "4000:4000"
+
+  # Frontend React / Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nomina_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  nomina_postgres_data:
